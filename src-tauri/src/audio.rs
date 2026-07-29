@@ -1,8 +1,8 @@
-//! Continuous microphone capture into a ring buffer.
+﻿//! Continuous microphone capture into a ring buffer.
 //!
 //! The stream runs for the life of the process rather than starting on keypress.
 //! Two reasons: opening a WASAPI stream costs 50-200ms, which would clip the start
-//! of every utterance; and a always-full ring lets us reach *backwards* for pre-roll,
+//! of every utterance; and an always-full ring lets us reach *backwards* for pre-roll,
 //! catching the word you started saying as you pressed the key.
 
 use anyhow::{anyhow, Result};
@@ -102,7 +102,7 @@ impl Recorder {
         };
         stream.play()?;
 
-        println!("mic: {} ch @ {} Hz ({:?})", channels, sample_rate, fmt);
+        crate::log!("mic: {} ch @ {} Hz ({:?})", channels, sample_rate, fmt);
 
         Ok(Self {
             ring,

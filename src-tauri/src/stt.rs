@@ -1,4 +1,4 @@
-//! whisper.cpp transcription.
+﻿//! whisper.cpp transcription.
 
 use anyhow::{anyhow, Result};
 use std::path::Path;
@@ -27,7 +27,7 @@ impl Engine {
         let path = model.to_str().ok_or_else(|| anyhow!("non-UTF8 model path"))?;
         let ctx = WhisperContext::new_with_params(path, WhisperContextParameters::default())?;
         let threads = default_threads();
-        println!("model: {} ({} threads)", model.display(), threads);
+        crate::log!("model: {} ({} threads)", model.display(), threads);
         Ok(Self { ctx, threads })
     }
 

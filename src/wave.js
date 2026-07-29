@@ -157,8 +157,13 @@ requestAnimationFrame(tick);
 // --- driven by the Rust engine -------------------------------------------
 
 const listen = window.__TAURI__?.event?.listen;
-if (listen) {
-  listen('verba://state', ({ payload }) => {
+if (!listen) {
+  // Standalone in a browser (or the ACL denied the API). Leave a trace rather
+  // than sitting invisibly at opacity 0, which is indistinguishable from the
+  // window failing to show at all.
+  console.error('Verba: __TAURI__.event.listen unavailable — overlay will not update');
+} else {
+  listen('verba:state', ({ payload }) => {
     if (payload.phase !== phase) setPhase(payload.phase);
 
     // Real microphone amplitude, not the mockup's synthetic jitter.
@@ -175,7 +180,7 @@ if (listen) {
         payload.phase === 'listening' ? 'oklch(80% .12 350)' : 'oklch(76% .12 300)';
     }
     if (payload.text !== undefined && payload.text !== null) setText(payload.text);
-  });
+  }).catch(err => console.error('Verba: listen() rejected', err));
 }
 
 setPhase('idle');
