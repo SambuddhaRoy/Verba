@@ -12,6 +12,15 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
 
+/// One energy band per ribbon, so the visualiser tracks the shape of the voice
+/// rather than just its loudness.
+pub const BANDS: usize = 7;
+const FFT_SIZE: usize = 2048;
+/// Speech range: fundamentals at the bottom, formants through the middle,
+/// sibilance at the top.
+const F_LOW: f32 = 80.0;
+const F_HIGH: f32 = 8_000.0;
+
 /// Whisper is trained on 16kHz mono.
 pub const TARGET_RATE: u32 = 16_000;
 /// How far back to reach when the hotkey goes down.
@@ -47,17 +56,102 @@ impl Ring {
     }
 }
 
+/// Short-time spectrum of the incoming audio, bucketed into `BANDS`.
+struct Analyzer {
+    fft: Arc<dyn realfft::RealToComplex<f32>>,
+    window: Vec<f32>,
+    input: Vec<f32>,
+    spectrum: Vec<realfft::num_complex::Complex<f32>>,
+    edges: [usize; BANDS + 1],
+}
+
+impl Analyzer {
+    fn new(sample_rate: u32) -> Self {
+        let fft = realfft::RealFftPlanner::<f32>::new().plan_fft_forward(FFT_SIZE);
+        let spectrum = fft.make_output_vec();
+
+        // Hann window. Without it the hard edges of each frame smear energy
+        // across every bin and all seven bands move together as one.
+        let window = (0..FFT_SIZE)
+            .map(|i| {
+                let x = i as f32 / (FFT_SIZE - 1) as f32;
+                0.5 - 0.5 * (2.0 * std::f32::consts::PI * x).cos()
+            })
+            .collect();
+
+        // Log-spaced edges. Linear spacing would hand six bands to sibilance
+        // and one to everything that actually carries the voice.
+        let to_bin = |f: f32| ((f * FFT_SIZE as f32 / sample_rate as f32) as usize).min(FFT_SIZE / 2);
+        let mut edges = [0usize; BANDS + 1];
+        for (i, edge) in edges.iter_mut().enumerate() {
+            let t = i as f32 / BANDS as f32;
+            *edge = to_bin(F_LOW * (F_HIGH / F_LOW).powf(t));
+        }
+
+        Self { fft, window, input: vec![0.0; FFT_SIZE], spectrum, edges }
+    }
+
+    fn analyse(&mut self, tail: &[f32]) -> [f32; BANDS] {
+        let n = tail.len().min(FFT_SIZE);
+        if n == 0 {
+            return [0.0; BANDS];
+        }
+        // Right-align the newest samples; zero-padding the front is harmless.
+        self.input.fill(0.0);
+        self.input[FFT_SIZE - n..].copy_from_slice(&tail[tail.len() - n..]);
+        for (s, w) in self.input.iter_mut().zip(&self.window) {
+            *s *= w;
+        }
+        if self.fft.process(&mut self.input, &mut self.spectrum).is_err() {
+            return [0.0; BANDS];
+        }
+
+        let mut out = [0.0f32; BANDS];
+        for b in 0..BANDS {
+            let lo = self.edges[b];
+            let hi = self.edges[b + 1].max(lo + 1).min(self.spectrum.len());
+            let count = (hi - lo).max(1) as f32;
+            let power: f32 = self.spectrum[lo..hi].iter().map(|c| c.norm_sqr()).sum();
+            let mag = (power / count).sqrt() / (FFT_SIZE as f32 * 0.25);
+            // Work in dB: linear magnitude spends most of its range on silence,
+            // so a linear bar barely moves for ordinary speech.
+            let db = 20.0 * (mag + 1e-9).log10();
+            out[b] = ((db + 55.0) / 55.0).clamp(0.0, 1.0);
+        }
+        out
+    }
+}
+
 pub struct Recorder {
     ring: Arc<Mutex<Ring>>,
+    analyzer: Mutex<Analyzer>,
     sample_rate: u32,
     _stream: cpal::Stream,
 }
 
+/// Input device names for the settings picker.
+pub fn input_devices() -> Vec<String> {
+    // cpal 0.18 dropped Device::name(); DeviceTrait requires Display, and that
+    // is the stable way to get a human-readable name across backends.
+    cpal::default_host()
+        .input_devices()
+        .map(|ds| ds.map(|d| d.to_string()).collect())
+        .unwrap_or_default()
+}
+
 impl Recorder {
-    pub fn new() -> Result<Self> {
+    /// `wanted` names a specific input device; None uses the system default.
+    /// A named device that has since been unplugged falls back to the default
+    /// rather than refusing to start.
+    pub fn new(wanted: Option<&str>) -> Result<Self> {
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
+        let device = wanted
+            .and_then(|name| {
+                host.input_devices()
+                    .ok()
+                    .and_then(|mut ds| ds.find(|d| d.to_string() == name))
+            })
+            .or_else(|| host.default_input_device())
             .ok_or_else(|| anyhow!("no input device"))?;
         let supported = device.default_input_config()?;
 
@@ -106,9 +200,20 @@ impl Recorder {
 
         Ok(Self {
             ring,
+            analyzer: Mutex::new(Analyzer::new(sample_rate)),
             sample_rate,
             _stream: stream,
         })
+    }
+
+    /// Per-band energy of the most recent audio, one value per ribbon.
+    pub fn bands(&self) -> [f32; BANDS] {
+        let tail: Vec<f32> = {
+            let r = self.ring.lock().unwrap();
+            let skip = r.buf.len().saturating_sub(FFT_SIZE);
+            r.buf.iter().skip(skip).copied().collect()
+        };
+        self.analyzer.lock().unwrap().analyse(&tail)
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -126,23 +231,6 @@ impl Recorder {
         self.ring.lock().unwrap().since(abs)
     }
 
-    /// Peak amplitude over the last `ms`, scaled for display.
-    ///
-    /// Peak rather than RMS: the wave should react to consonants and plosives,
-    /// which RMS smooths away over a 100ms window. The curve is deliberately
-    /// generous — speech rarely approaches full scale, and a visualiser that
-    /// only twitches reads as broken.
-    pub fn recent_level(&self, ms: u32) -> f32 {
-        let n = (self.sample_rate as usize * ms as usize) / 1000;
-        let r = self.ring.lock().unwrap();
-        let peak = r
-            .buf
-            .iter()
-            .rev()
-            .take(n)
-            .fold(0.0f32, |m, s| m.max(s.abs()));
-        (peak * 3.2).clamp(0.0, 1.0)
-    }
 }
 
 /// Resample to 16kHz mono for whisper.

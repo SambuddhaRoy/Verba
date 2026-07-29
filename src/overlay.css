@@ -1,9 +1,11 @@
-/* Verba overlay — liquid glass, dark only.
+/* Verba overlay.
  *
- * Material rules from the design's component sheet:
- *   - No borders anywhere. Only inset specular edges and ambient cast shadow.
- *   - Radii are concentric: inner r = outer r - padding.
- *   - Accents appear as rim gradients, bloom shadows and status dots. Never fills.
+ * Two treatments share this file:
+ *   #stage-ribbons — the liquid-glass interference wave from the design.
+ *   #stage-glow    — dark translucent box inside a moving blue aura.
+ *
+ * Material rules carried across both: no borders, only inset specular edges and
+ * ambient cast shadow; radii concentric (inner r = outer r - padding).
  */
 
 :root {
@@ -12,8 +14,6 @@
   --indigo: oklch(62% .13 275);
   --orange: oklch(82% .13 60);
 
-  /* The design's own stack. Manrope is not bundled yet; Segoe UI Variable is
-     the sanctioned fallback and is what Windows 11 ships. */
   --sans: Manrope, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
 }
@@ -34,7 +34,7 @@ html, body {
   cursor: default;
 }
 
-#wrap {
+.stage {
   position: absolute;
   left: 50%;
   top: 0;
@@ -43,6 +43,9 @@ html, body {
   justify-content: center;
   pointer-events: none;
 }
+.stage[hidden] { display: none; }
+
+/* ---------------------------------------------------------------- ribbons */
 
 #glass {
   position: relative;
@@ -92,25 +95,15 @@ html, body {
     height .7s ease;
 }
 
-#wave svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
+#wave svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 
 /* Screen blending is what makes the ribbons whiten where they cross — that
    whitening is the lens shape, not a separate element. */
 #ribbons path { mix-blend-mode: screen; }
 
-/* Gradient scrim that blends the wave's light down into the glass once the
-   panel extends. */
 #blend {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -2px;
+  left: 0; right: 0; bottom: -2px;
   height: 46px;
   background: linear-gradient(rgba(8, 8, 11, 0), rgba(8, 8, 11, .55));
   opacity: 0;
@@ -127,18 +120,18 @@ html, body {
 
 #inner { padding: 2px 20px 18px; }
 
-#meta {
+#meta, #glow-meta {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 4px 12px;
   font: 500 9.5px var(--mono);
   letter-spacing: .06em;
 }
+#meta { padding: 0 4px 12px; }
 
-#status { color: var(--pink); }
-#timer  { font: 600 11.5px var(--sans); color: rgba(255, 255, 255, .7); }
-#engine { margin-left: auto; color: rgba(255, 255, 255, .3); }
+#status, #g-status { color: var(--pink); }
+#timer, #g-timer   { font: 600 11.5px var(--sans); color: rgba(255,255,255,.7); }
+#engine, #g-engine { margin-left: auto; color: rgba(255,255,255,.3); }
 
 /* Transcript well. Inner radius 22 against the outer 34 — concentric. */
 #line {
@@ -153,16 +146,11 @@ html, body {
   min-height: 60px;
 }
 
-/* Words fade up as they settle, per the design's confirmation cascade. */
-#line span {
-  opacity: 0;
-  transition: opacity .45s ease;
-}
+#line span, #g-line span { opacity: 0; transition: opacity .45s ease; }
 
-#caret {
+.caret {
   display: inline-block;
-  width: 2px;
-  height: 18px;
+  width: 2px; height: 18px;
   margin-left: 2px;
   vertical-align: -3px;
   border-radius: 1px;
@@ -175,3 +163,95 @@ html, body {
   0%, 45%   { opacity: 1; }
   55%, 100% { opacity: .15; }
 }
+
+/* ------------------------------------------------------------------- glow */
+
+#glow-shell {
+  position: relative;
+  margin-top: 20px;
+  width: 300px;
+  opacity: 0;
+  transition:
+    width .8s cubic-bezier(.2, 1.04, .28, 1),
+    opacity .45s ease;
+}
+
+/* The aura lives behind the box and inside the page, which is what lets the
+   box's backdrop-filter sample something real. */
+#aura {
+  position: absolute;
+  inset: -52px;
+  border-radius: 70px;
+  filter: blur(30px);
+  opacity: 0;
+  transition: opacity .6s ease;
+  pointer-events: none;
+  isolation: isolate;
+}
+
+.blob {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 46%; height: 150%;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+.b1 { background: radial-gradient(circle, #2B7BFF 0%, transparent 66%); }
+.b2 { background: radial-gradient(circle, #17C8FF 0%, transparent 66%); }
+.b3 { background: radial-gradient(circle, #6A5CFF 0%, transparent 68%); }
+
+#glow-box {
+  position: relative;
+  border-radius: 26px;
+  padding: 13px 16px;
+  overflow: hidden;
+  background: rgba(8, 11, 20, .72);
+  backdrop-filter: blur(26px) saturate(150%);
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .14),
+    inset 0 0 0 1px rgba(120, 180, 255, .10),
+    0 30px 80px -30px rgba(0, 0, 0, .95);
+}
+
+#glow-meta { padding: 0 2px 10px; }
+#g-status { color: #7FD0FF; }
+
+/* Bars read as a level meter the way the ribbons cannot — deliberately literal,
+   since this treatment is the experiment. */
+#g-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 38px;
+}
+#g-bars i {
+  flex: 1;
+  height: 100%;
+  border-radius: 2px;
+  transform-origin: bottom;
+  transform: scaleY(.04);
+  background: linear-gradient(180deg, #9BDCFF, #2B7BFF 70%, #6A5CFF);
+  box-shadow: 0 0 10px -2px rgba(60, 150, 255, .9);
+}
+
+#g-line {
+  margin-top: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .035);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1);
+  padding: 13px 15px;
+  font: 400 15px/1.66 var(--sans);
+  color: rgba(255, 255, 255, .95);
+  letter-spacing: -.004em;
+  text-wrap: pretty;
+  height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+  transition: height .7s cubic-bezier(.22, 1, .36, 1),
+              padding .7s cubic-bezier(.22, 1, .36, 1);
+}
+#g-line.open { height: 92px; padding-top: 13px; padding-bottom: 13px; }
+#g-line .caret { background: #7FD0FF; box-shadow: 0 0 10px 2px rgba(127, 208, 255, .7); }

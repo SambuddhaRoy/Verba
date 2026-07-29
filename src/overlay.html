@@ -6,7 +6,10 @@
 <link rel="stylesheet" href="overlay.css">
 </head>
 <body>
-<div id="wrap">
+
+<!-- Two visual treatments, one shown at a time. Switched from Settings. -->
+
+<div id="stage-ribbons" class="stage">
   <div id="glass">
     <div id="rim"></div>
 
@@ -45,6 +48,29 @@
     </div>
   </div>
 </div>
+
+<div id="stage-glow" class="stage" hidden>
+  <div id="glow-shell">
+    <!-- Aura sits behind the box. Because it lives in the page, the box's
+         backdrop-filter has real content to sample — this treatment does not
+         depend on the desktop showing through at all. -->
+    <div id="aura">
+      <div class="blob b1"></div>
+      <div class="blob b2"></div>
+      <div class="blob b3"></div>
+    </div>
+    <div id="glow-box">
+      <div id="glow-meta">
+        <span id="g-status">LISTENING</span>
+        <span id="g-timer">0:00</span>
+        <span id="g-engine">SMALL.EN · LOCAL</span>
+      </div>
+      <div id="g-bars"></div>
+      <div id="g-line"></div>
+    </div>
+  </div>
+</div>
+
 <script src="wave.js"></script>
 </body>
 </html>
