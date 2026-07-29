@@ -6,3 +6,4 @@ src-tauri/gen/schemas/
 node_modules/
 dist/
 *.db
+src/_preview.html

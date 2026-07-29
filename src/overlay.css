@@ -168,7 +168,9 @@ html, body {
 
 #glow-shell {
   position: relative;
-  margin-top: 20px;
+  /* Clear of the window's top edge by more than the widest halo's inset,
+     otherwise the outer bloom is cut off in a hard straight line. */
+  margin-top: 46px;
   width: 300px;
   opacity: 0;
   transition:
@@ -176,82 +178,82 @@ html, body {
     opacity .45s ease;
 }
 
-/* The aura lives behind the box and inside the page, which is what lets the
-   box's backdrop-filter sample something real. */
+/* Registered so the conic sweep angle can be driven per frame. A plain custom
+   property would be an unanimatable string; @property makes it a real angle. */
+@property --a {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
 #aura {
   position: absolute;
-  inset: -52px;
-  border-radius: 70px;
-  filter: blur(30px);
+  inset: 0;
   opacity: 0;
   transition: opacity .6s ease;
   pointer-events: none;
-  isolation: isolate;
 }
 
-.blob {
+/* Filled rounded rectangles, larger than the box and heavily blurred. The box
+   sits on top and covers the middle, so what escapes around the edges is the
+   glow — and because each layer is solid rather than a masked band, their
+   falloffs merge into one halo instead of reading as concentric outlines.
+   Being unmasked, they also give the box's backdrop-filter real colour to
+   smear, which is what frosts the interior. */
+.halo {
   position: absolute;
-  top: 50%; left: 50%;
-  width: 46%; height: 150%;
-  border-radius: 50%;
-  mix-blend-mode: screen;
-  will-change: transform;
+  will-change: opacity, filter, transform;
 }
-.b1 { background: radial-gradient(circle, #2B7BFF 0%, transparent 66%); }
-.b2 { background: radial-gradient(circle, #17C8FF 0%, transparent 66%); }
-.b3 { background: radial-gradient(circle, #6A5CFF 0%, transparent 68%); }
+.h1 {
+  inset: -12px;
+  border-radius: 38px;
+  background: conic-gradient(from var(--a), #2B7BFF, #17C8FF 22%, #9BDCFF 45%, #6A5CFF 72%, #2B7BFF);
+  filter: blur(20px);
+}
+.h2 {
+  inset: -30px;
+  border-radius: 56px;
+  background: conic-gradient(from var(--a), #17C8FF, #6A5CFF 35%, #2B7BFF 68%, #17C8FF);
+  filter: blur(38px);
+}
+.h3 {
+  inset: -54px;
+  border-radius: 80px;
+  background: conic-gradient(from var(--a), #6A5CFF, #0AA6FF 42%, #2B7BFF 74%, #6A5CFF);
+  filter: blur(60px);
+}
 
 #glow-box {
   position: relative;
   border-radius: 26px;
-  padding: 13px 16px;
+  padding: 13px 17px;
   overflow: hidden;
-  background: rgba(8, 11, 20, .72);
-  backdrop-filter: blur(26px) saturate(150%);
-  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  /* Thin enough that the core behind it reads through as colour, which is what
+     makes this frosted rather than merely dark. Brightness below 1 keeps the
+     blue from washing the text out. */
+  background: rgba(9, 12, 20, .46);
+  backdrop-filter: blur(30px) saturate(180%) brightness(.62);
+  -webkit-backdrop-filter: blur(30px) saturate(180%) brightness(.62);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .14),
-    inset 0 0 0 1px rgba(120, 180, 255, .10),
+    inset 0 1px 0 rgba(255, 255, 255, .16),
+    inset 0 0 0 1px rgba(120, 180, 255, .12),
     0 30px 80px -30px rgba(0, 0, 0, .95);
 }
 
-#glow-meta { padding: 0 2px 10px; }
+#glow-meta { padding: 0 1px; }
 #g-status { color: #7FD0FF; }
 
-/* Bars read as a level meter the way the ribbons cannot — deliberately literal,
-   since this treatment is the experiment. */
-#g-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  height: 38px;
-}
-#g-bars i {
-  flex: 1;
-  height: 100%;
-  border-radius: 2px;
-  transform-origin: bottom;
-  transform: scaleY(.04);
-  background: linear-gradient(180deg, #9BDCFF, #2B7BFF 70%, #6A5CFF);
-  box-shadow: 0 0 10px -2px rgba(60, 150, 255, .9);
-}
-
 #g-line {
-  margin-top: 12px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, .035);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1);
-  padding: 13px 15px;
-  font: 400 15px/1.66 var(--sans);
-  color: rgba(255, 255, 255, .95);
+  font: 400 15.5px/1.68 var(--sans);
+  color: rgba(255, 255, 255, .96);
   letter-spacing: -.004em;
   text-wrap: pretty;
   height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
+  margin-top: 0;
   overflow: hidden;
   transition: height .7s cubic-bezier(.22, 1, .36, 1),
-              padding .7s cubic-bezier(.22, 1, .36, 1);
+              margin-top .7s cubic-bezier(.22, 1, .36, 1);
 }
-#g-line.open { height: 92px; padding-top: 13px; padding-bottom: 13px; }
+#g-line.open { height: 88px; margin-top: 11px; }
 #g-line .caret { background: #7FD0FF; box-shadow: 0 0 10px 2px rgba(127, 208, 255, .7); }
