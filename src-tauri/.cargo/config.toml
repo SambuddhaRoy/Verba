@@ -1,0 +1,16 @@
+# whisper-rs-sys generates its FFI bindings with bindgen, which needs libclang.
+#
+# Two things we are NOT doing:
+#   - Installing the full LLVM toolchain (~2.5GB) for one DLL.
+#   - Setting WHISPER_DONT_GENERATE_BINDINGS=1 to use the crate's bundled
+#     bindings. Those were generated on Linux — they carry glibc layouts
+#     (_IO_FILE, _G_fpos_t) that don't match MSVC, and the build fails on a
+#     const-eval size assertion. The build.rs fallback doesn't help either:
+#     bindgen panics on missing libclang rather than returning an error.
+#
+# So: a single 80MB libclang.dll vendored into .tools/ (gitignored).
+# Obtain it with `pip install libclang` and copy from
+# <site-packages>/clang/native/, or from an LLVM release. `relative = true`
+# resolves against this file's directory, so the build is path-independent.
+[env]
+LIBCLANG_PATH = { value = ".tools", relative = true }

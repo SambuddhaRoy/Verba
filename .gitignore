@@ -1,0 +1,6 @@
+target/
+models/*.bin
+src-tauri/.tools/
+node_modules/
+dist/
+*.db
