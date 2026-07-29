@@ -20,13 +20,14 @@ fn default_threads() -> i32 {
 }
 
 impl Engine {
-    pub fn new(model: &Path) -> Result<Self> {
+    /// `threads` of None means physical cores - 2.
+    pub fn new(model: &Path, threads: Option<i32>) -> Result<Self> {
         if !model.exists() {
             return Err(anyhow!("model not found: {}", model.display()));
         }
         let path = model.to_str().ok_or_else(|| anyhow!("non-UTF8 model path"))?;
         let ctx = WhisperContext::new_with_params(path, WhisperContextParameters::default())?;
-        let threads = default_threads();
+        let threads = threads.filter(|t| *t > 0).unwrap_or_else(default_threads);
         crate::log!("model: {} ({} threads)", model.display(), threads);
         Ok(Self { ctx, threads })
     }

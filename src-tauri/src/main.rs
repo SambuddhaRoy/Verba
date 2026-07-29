@@ -11,19 +11,23 @@
 mod log;
 
 mod audio;
+mod config;
 mod focus;
+mod hardware;
 mod hotkey;
 mod inject;
 mod overlay;
+mod startup;
 mod stt;
 
 use anyhow::{anyhow, Result};
 use std::path::PathBuf;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
-const MODEL: &str = "ggml-small.en-q5_1.bin";
 const EVENT: &str = "verba:state";
 /// Below this, it's a stray keypress rather than speech.
 const MIN_SPEECH_MS: u128 = 300;
@@ -36,62 +40,137 @@ const TICK: Duration = Duration::from_millis(33);
 struct State {
     phase: &'static str,
     status: &'static str,
-    level: f32,
     elapsed: f32,
+    bands: [f32; audio::BANDS],
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    visual: Option<String>,
 }
 
 impl State {
     fn new(phase: &'static str, status: &'static str) -> Self {
-        Self { phase, status, level: 0.0, elapsed: 0.0, text: None }
+        Self {
+            phase,
+            status,
+            elapsed: 0.0,
+            bands: [0.0; audio::BANDS],
+            text: None,
+            visual: None,
+        }
     }
 }
 
 /// Emit and report failure. Swallowing this is what hid the ACL denial that
-/// kept the overlay stuck at idle.
+/// once kept the overlay stuck at idle.
 fn emit(app: &AppHandle, state: State) {
     if let Err(e) = app.emit(EVENT, state) {
         log!("  emit failed: {e}");
     }
 }
 
-fn model_path() -> Result<PathBuf> {
+fn model_path(file: &str) -> Result<PathBuf> {
     if let Ok(p) = std::env::var("VERBA_MODEL") {
         return Ok(PathBuf::from(p));
     }
-    let mut roots = Vec::new();
-    // Next to the .exe first: double-clicked from Explorer, the working
-    // directory is not necessarily the install folder.
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            roots.push(dir.join("models"));
-            roots.push(dir.to_path_buf());
-        }
-    }
-    roots.push(PathBuf::from("../models"));
-    roots.push(PathBuf::from("models"));
-
-    for root in &roots {
-        let p = root.join(MODEL);
-        if p.exists() {
-            return Ok(p);
-        }
+    let p = config::models_dir().join(file);
+    if p.exists() {
+        return Ok(p);
     }
     Err(anyhow!(
-        "{MODEL} not found. Looked in: {}. Set VERBA_MODEL to override.",
-        roots.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+        "{file} not found in {}. Pick another model in Settings, or set VERBA_MODEL.",
+        config::models_dir().display()
     ))
 }
 
+// --- settings commands ----------------------------------------------------
+
+#[derive(serde::Serialize)]
+struct SettingsState {
+    config: config::Config,
+    hardware: hardware::Hardware,
+    recommendation: hardware::Recommendation,
+    models: Vec<config::ModelInfo>,
+    microphones: Vec<String>,
+    engines: Vec<&'static str>,
+    log_path: String,
+    config_path: String,
+}
+
+#[tauri::command]
+fn get_state() -> SettingsState {
+    let hw = hardware::detect();
+    SettingsState {
+        config: config::load(),
+        recommendation: hardware::recommend(&hw),
+        hardware: hw,
+        models: config::catalogue(),
+        microphones: audio::input_devices(),
+        // faster-whisper is not wired up yet; the UI greys it out rather than
+        // offering a selection that would silently do nothing.
+        engines: vec!["whisper.cpp"],
+        log_path: log::path().display().to_string(),
+        config_path: config::path().display().to_string(),
+    }
+}
+
+#[tauri::command]
+fn set_config(app: AppHandle, cfg: config::Config) -> Result<(), String> {
+    let previous = config::load();
+    config::save(&cfg).map_err(|e| e.to_string())?;
+
+    if cfg.launch_at_startup != previous.launch_at_startup {
+        if let Err(e) = startup::set(cfg.launch_at_startup) {
+            return Err(format!("saved, but startup entry failed: {e}"));
+        }
+    }
+    // Push the overlay treatment through immediately — it is the one setting
+    // with an instant visible effect, so waiting for the next dictation to
+    // apply it would read as the control being broken.
+    if cfg.visual != previous.visual {
+        let mut s = State::new("idle", "");
+        s.visual = Some(cfg.visual.clone());
+        emit(&app, s);
+    }
+    Ok(())
+}
+
+fn show_settings(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+// --- engine ---------------------------------------------------------------
+
 fn engine_loop(app: AppHandle) -> Result<()> {
-    let engine = stt::Engine::new(&model_path()?)?;
-    let recorder = audio::Recorder::new()?;
+    let mut cfg = config::load();
+    // Held as an Option so it can be dropped and rebuilt: that is what makes
+    // "preload" and "unload when idle" real controls rather than stored values
+    // nothing ever reads.
+    let mut engine: Option<stt::Engine> = None;
+    let mut loaded_model = String::new();
+    let mut last_used = Instant::now();
+
+    if cfg.preload_model {
+        engine = Some(stt::Engine::new(&model_path(&cfg.model)?, cfg.threads)?);
+        loaded_model = cfg.model.clone();
+    }
+
+    let recorder = audio::Recorder::new(cfg.microphone.as_deref())?;
     let events = hotkey::spawn()?;
 
     let overlay = app
         .get_webview_window("overlay")
         .ok_or_else(|| anyhow!("overlay window missing"))?;
+
+    // Send the configured treatment once, so the overlay starts in the right
+    // one rather than defaulting to ribbons until the first settings change.
+    let mut boot = State::new("idle", "");
+    boot.visual = Some(cfg.visual.clone());
+    emit(&app, boot);
 
     log!("ready — hold Ctrl+Shift+Space to dictate");
 
@@ -108,7 +187,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 listening = true;
                 hide_at = None;
 
-                // Both fields get logged: writing app-routing rules in M3 means
+                // Both fields get logged: writing app-routing rules later means
                 // knowing what the exe and title actually look like.
                 let info = focus::foreground();
                 log!("● listening   [{}] {}", info.exe, info.title);
@@ -131,10 +210,22 @@ fn engine_loop(app: AppHandle) -> Result<()> {
 
                 emit(&app, State::new("transcribing", "TRANSCRIBING"));
 
+                // Re-read settings each time so a model change in the settings
+                // window takes effect on the next dictation, not the next launch.
+                cfg = config::load();
+                if engine.is_none() || loaded_model != cfg.model {
+                    let path = model_path(&cfg.model)?;
+                    log!("  loading {}", cfg.model);
+                    engine = Some(stt::Engine::new(&path, cfg.threads)?);
+                    loaded_model = cfg.model.clone();
+                }
+                let engine_ref = engine.as_ref().expect("just loaded");
+
                 let pcm = audio::to_16k(&raw, recorder.sample_rate())?;
                 let t0 = Instant::now();
-                let text = engine.transcribe(&pcm)?;
+                let text = engine_ref.transcribe(&pcm)?;
                 let took = t0.elapsed();
+                last_used = Instant::now();
 
                 if text.is_empty() {
                     log!("  (silence)");
@@ -165,13 +256,22 @@ fn engine_loop(app: AppHandle) -> Result<()> {
             Err(RecvTimeoutError::Timeout) => {
                 if listening {
                     let mut s = State::new("listening", "LISTENING");
-                    s.level = recorder.recent_level(120);
+                    s.bands = recorder.bands();
                     s.elapsed = started.elapsed().as_secs_f32();
                     emit(&app, s);
                 } else if hide_at.is_some_and(|t| Instant::now() >= t) {
                     hide_at = None;
                     emit(&app, State::new("idle", ""));
                     let _ = overlay.hide();
+                } else if engine.is_some()
+                    && cfg.model_idle_eject_secs > 0
+                    && last_used.elapsed().as_secs() >= cfg.model_idle_eject_secs
+                {
+                    // Dropping the context frees the model's memory; the next
+                    // dictation pays the reload.
+                    engine = None;
+                    loaded_model.clear();
+                    log!("model unloaded after {}s idle", cfg.model_idle_eject_secs);
                 }
             }
 
@@ -183,17 +283,26 @@ fn engine_loop(app: AppHandle) -> Result<()> {
 
 /// Drive the overlay through its states with no microphone and no model, so the
 /// visuals can be checked on their own.
-fn overlay_demo(app: AppHandle) {
+fn overlay_demo(app: AppHandle, visual: &str) {
     let Some(win) = app.get_webview_window("overlay") else { return };
     let _ = win.show();
-    log!("overlay demo — listening 6s, then transcript 6s");
+    log!("overlay demo ({visual}) — listening 8s, then transcript 6s");
+
+    let mut s = State::new("idle", "");
+    s.visual = Some(visual.to_string());
+    emit(&app, s);
+    std::thread::sleep(Duration::from_millis(120));
 
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(6) {
-        let mut s = State::new("listening", "LISTENING");
-        // Fake a speaking rhythm so the ribbons visibly breathe.
+    while start.elapsed() < Duration::from_secs(8) {
         let t = start.elapsed().as_secs_f32();
-        s.level = 0.45 + 0.55 * (t * 2.7).sin().abs();
+        let mut s = State::new("listening", "LISTENING");
+        // Bands sweep at different rates so the treatment is visibly
+        // frequency-reactive rather than one level moving everything together.
+        for (i, b) in s.bands.iter_mut().enumerate() {
+            let f = 1.3 + i as f32 * 0.55;
+            *b = (0.5 + 0.5 * (t * f + i as f32).sin()).powf(1.6);
+        }
         s.elapsed = t;
         emit(&app, s);
         std::thread::sleep(TICK);
@@ -233,23 +342,55 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let demo = arg1 == Some("--overlay-test");
+    let demo = (arg1 == Some("--overlay-test"))
+        .then(|| args.get(2).cloned().unwrap_or_else(|| config::load().visual));
+    let open_settings = arg1 == Some("--settings");
 
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![get_state, set_config])
         .setup(move |app| {
             let overlay_win = app
                 .get_webview_window("overlay")
                 .ok_or("overlay window missing")?;
             overlay::configure(&overlay_win)?;
 
+            let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit Verba", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&settings_item, &quit_item])?;
+
+            TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("Verba — hold Ctrl+Shift+Space to dictate")
+                .menu(&menu)
+                // Left click opens Settings; the menu stays on right click.
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "settings" => show_settings(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
+                        show_settings(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+
+            if open_settings {
+                show_settings(app.handle());
+            }
+
             let handle = app.handle().clone();
             // The audio stream is !Send on Windows, so the engine owns everything
             // on one thread rather than sharing it.
             std::thread::Builder::new().name("engine".into()).spawn(move || {
-                if demo {
-                    overlay_demo(handle);
-                } else if let Err(e) = engine_loop(handle) {
-                    log!("engine stopped: {e:#}");
+                match &demo {
+                    Some(v) => overlay_demo(handle, v),
+                    None => {
+                        if let Err(e) = engine_loop(handle) {
+                            log!("engine stopped: {e:#}");
+                        }
+                    }
                 }
             })?;
             Ok(())

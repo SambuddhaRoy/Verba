@@ -26,6 +26,21 @@
         "focus": false,
         "visible": false,
         "shadow": false
+      },
+      {
+        "label": "settings",
+        "title": "Verba — Settings",
+        "url": "settings.html",
+        "width": 940,
+        "height": 660,
+        "minWidth": 820,
+        "minHeight": 560,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "resizable": true,
+        "visible": false,
+        "windowEffects": { "effects": ["mica"] }
       }
     ],
     "security": {

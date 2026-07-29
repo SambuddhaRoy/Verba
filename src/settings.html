@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Verba — Settings</title>
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+
+<header data-tauri-drag-region>
+  <span class="mark"></span>
+  <span class="title" data-tauri-drag-region>Verba — Settings</span>
+  <div class="winbtns">
+    <button id="min" title="Minimise">&#8212;</button>
+    <button id="close" title="Close">&#10005;</button>
+  </div>
+</header>
+
+<main>
+  <nav>
+    <button class="nav on" data-panel="general"><i></i>General</button>
+    <button class="nav" data-panel="dictation"><i></i>Dictation</button>
+    <button class="nav" data-panel="models"><i></i>Models</button>
+    <button class="nav" data-panel="appearance"><i></i>Appearance</button>
+    <button class="nav" data-panel="about"><i></i>About</button>
+    <div class="rig">
+      <div class="mono" id="rig-line">detecting hardware…</div>
+      <p id="rig-note">All processing on-device.</p>
+    </div>
+  </nav>
+
+  <section>
+    <!-- General -->
+    <div class="panel on" id="p-general">
+      <h1>General</h1>
+      <p class="sub">Hold the hotkey to dictate, release to insert at your caret.</p>
+
+      <div class="card row">
+        <div class="grow">
+          <b>Global hotkey</b>
+          <small>Held to dictate. Swallowed while held, so the focused app never sees it.</small>
+        </div>
+        <div class="keys"><kbd>Ctrl</kbd><s>+</s><kbd>Shift</kbd><s>+</s><kbd>Space</kbd></div>
+      </div>
+
+      <div class="card row">
+        <div class="grow"><b>Launch at startup</b><small>Start Verba when you sign in.</small></div>
+        <button class="tgl" id="launch_at_startup"></button>
+      </div>
+
+      <div class="card row">
+        <div class="grow"><b>Language</b><small>English-only models ignore this.</small></div>
+        <select id="language">
+          <option value="en">English</option>
+          <option value="auto">Auto-detect</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Dictation -->
+    <div class="panel" id="p-dictation">
+      <h1>Dictation</h1>
+      <p class="sub">Capture runs continuously into a rolling buffer, so the first word is never clipped.</p>
+
+      <div class="card row">
+        <div class="grow"><b>Microphone</b><small>Audio never leaves the machine.</small></div>
+        <select id="microphone"><option value="">System default</option></select>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <b>CPU threads</b>
+            <small>Left at default this is physical cores minus two, so dictating doesn't stutter everything else.</small>
+          </div>
+          <span class="mono val" id="threads-val">auto</span>
+        </div>
+        <input type="range" id="threads" min="0" max="32" step="1">
+      </div>
+
+      <div class="card row">
+        <div class="grow"><b>Preload model</b><small>Load at startup instead of on first use. Costs memory while idle, removes the first-use stall.</small></div>
+        <button class="tgl" id="preload_model"></button>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <b>Unload when idle</b>
+            <small>Free the model's memory after a quiet spell. The next dictation pays the reload.</small>
+          </div>
+          <span class="mono val" id="eject-val">10 min</span>
+        </div>
+        <input type="range" id="model_idle_eject_secs" min="0" max="3600" step="60">
+      </div>
+    </div>
+
+    <!-- Models -->
+    <div class="panel" id="p-models">
+      <h1>Models</h1>
+      <p class="sub" id="rec-line">Working out what suits this machine…</p>
+
+      <div class="seg" id="engine">
+        <button data-v="whisper.cpp" class="on">whisper.cpp</button>
+        <button data-v="faster-whisper">faster-whisper</button>
+      </div>
+      <p class="hint" id="engine-hint"></p>
+
+      <div id="models"></div>
+    </div>
+
+    <!-- Appearance -->
+    <div class="panel" id="p-appearance">
+      <h1>Appearance</h1>
+      <p class="sub">Two overlay treatments. Both react to the sound of your voice.</p>
+      <div class="visuals">
+        <button class="vis on" data-v="ribbons">
+          <div class="vis-art art-ribbons"></div>
+          <b>Ribbons</b><small>Seven interference bands, screen-blended. Floats with no surface.</small>
+        </button>
+        <button class="vis" data-v="glow">
+          <div class="vis-art art-glow"><span></span></div>
+          <b>Glow</b><small>Dark translucent box inside a blue aura that drifts with speech.</small>
+        </button>
+      </div>
+    </div>
+
+    <!-- About -->
+    <div class="panel" id="p-about">
+      <h1>About</h1>
+      <p class="sub">Verba 0.1.0 — local-first speech to text.</p>
+      <div class="card"><div class="grow"><b>Log file</b><small class="mono" id="logpath">…</small></div></div>
+      <div class="card"><div class="grow"><b>Config</b><small class="mono" id="cfgpath">…</small></div></div>
+    </div>
+  </section>
+</main>
+
+<div id="toast"></div>
+<script src="settings.js"></script>
+</body>
+</html>

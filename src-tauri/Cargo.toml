@@ -7,11 +7,21 @@ edition = "2024"
 anyhow = "1.0.104"
 cpal = "0.18.1"
 num_cpus = "1.17.0"
+realfft = "3.5.0"
 rubato = "0.16"
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"
 tauri = { version = "2.11.5", features = ["tray-icon"] }
 whisper-rs = "0.16.0"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_System_Console"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_System_Console", "Win32_Graphics_Dxgi", "Win32_System_SystemInformation", "Win32_System_Registry"] }
 
 [build-dependencies]
 tauri-build = "2.6.3"
+
+[features]
+# Owning the feature rather than enabling whisper-rs/vulkan directly lets the
+# code ask, via cfg, whether this build can actually reach the GPU — a
+# Vulkan-capable card is useless if the binary has no Vulkan backend.
+# Building without it needs no Vulkan SDK and produces a CPU-only binary.
+default = ["gpu-vulkan"]
+gpu-vulkan = ["whisper-rs/vulkan"]
