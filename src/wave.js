@@ -25,26 +25,29 @@ const RIBBONS = [
 
 const W = 1000, H = 160, CY = 80, N = 56;
 const NBANDS = 7;
-const NBARS = 15;
+
+/* One entry per halo layer: sweep speed in degrees/second, the band slice it
+ * listens to, and its resting blur. Splitting the spectrum across the three
+ * means low rumble drives the tight inner halo while sibilance flares the
+ * outer haze, so the glow moves rather than merely pulsing as one.
+ * Speeds are mutually prime-ish so the layers never resynchronise. */
+const HALOS = [
+  { speed:  24, lo: 0, hi: 3, blur: 20, base: 0.42 },
+  { speed: -15, lo: 2, hi: 5, blur: 38, base: 0.34 },
+  { speed:   9, lo: 4, hi: 7, blur: 60, base: 0.26 },
+];
 
 const $ = id => document.getElementById(id);
 const el = {
   stageRibbons: $('stage-ribbons'), stageGlow: $('stage-glow'),
   glass: $('glass'), rim: $('rim'), wave: $('wave'), blend: $('blend'),
   body: $('body'), status: $('status'), timer: $('timer'), line: $('line'),
-  shell: $('glow-shell'), aura: $('aura'), gStatus: $('g-status'),
-  gTimer: $('g-timer'), gBars: $('g-bars'), gLine: $('g-line'),
+  shell: $('glow-shell'), aura: $('aura'), box: $('glow-box'),
+  gStatus: $('g-status'), gTimer: $('g-timer'), gLine: $('g-line'),
+  engine: $('engine'), gEngine: $('g-engine'),
 };
 const paths = [...document.querySelectorAll('#ribbons path')];
-const blobs = [...document.querySelectorAll('#aura .blob')];
-
-// Build the bar meter once.
-const bars = [];
-for (let i = 0; i < NBARS; i++) {
-  const b = document.createElement('i');
-  el.gBars.appendChild(b);
-  bars.push(b);
-}
+const halos = [...document.querySelectorAll('#aura .halo')];
 
 let phase = 'idle';
 let visual = 'ribbons';
@@ -128,8 +131,9 @@ function setPhase(next) {
     el.body.style.height = '232px';
   }
 
-  // glow
-  el.shell.style.width = idle ? '300px' : listening ? '460px' : '560px';
+  // glow — narrower while listening, since the box holds only the meta row
+  // until a transcript arrives.
+  el.shell.style.width = idle ? '300px' : listening ? '380px' : '560px';
   el.shell.style.opacity = idle ? '0' : '1';
   el.aura.style.opacity = idle ? '0' : '1';
   el.gLine.classList.toggle('open', !idle && !listening);
@@ -166,15 +170,6 @@ function reveal(p) {
   }
 }
 
-/** Sample the band curve at an arbitrary position, so the meter can have more
- *  bars than there are bands. */
-function bandAt(u) {
-  const x = u * (NBANDS - 1);
-  const i = Math.min(NBANDS - 2, Math.floor(x));
-  const f = x - i;
-  return band[i] * (1 - f) + band[i + 1] * f;
-}
-
 let last = performance.now();
 function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
@@ -199,20 +194,34 @@ function tick(now) {
       paths[i].setAttribute('d', ribbonPath(RIBBONS[i], t, lvl));
     }
   } else {
-    for (let i = 0; i < bars.length; i++) {
-      const v = bandAt(i / (bars.length - 1)) * level;
-      bars[i].style.transform = `scaleY(${(0.04 + 0.96 * v).toFixed(3)})`;
+    let total = 0;
+    for (let i = 0; i < halos.length; i++) {
+      const spec = HALOS[i];
+      let e = 0;
+      for (let b = spec.lo; b < spec.hi; b++) e += band[b];
+      e /= spec.hi - spec.lo;
+      total += e;
+
+      const drive = e * level;
+      // Sweep the gradient, not the element: rotating the element would tumble
+      // the rounded rectangle and the halo would stop tracing the box.
+      halos[i].style.setProperty('--a', `${(t * spec.speed).toFixed(1)}deg`);
+      halos[i].style.opacity = (spec.base * (0.45 + 0.55 * drive)).toFixed(3);
+      // Tightens as it brightens. The swing stays small — a large one washes
+      // the layer out to nothing at rest.
+      halos[i].style.filter = `blur(${(spec.blur + 9 * (1 - drive)).toFixed(1)}px)`;
+      halos[i].style.transform = `scale(${(0.97 + 0.06 * drive).toFixed(4)})`;
     }
-    // Blobs drift on incommensurate sine pairs so the aura never visibly loops.
-    for (let i = 0; i < blobs.length; i++) {
-      const e = bandAt((i + 0.5) / blobs.length);
-      const x = Math.sin(t * (0.62 + i * 0.17) + i * 2.1) * (18 + 22 * e);
-      const y = Math.cos(t * (0.44 + i * 0.13) + i * 1.7) * (12 + 16 * e);
-      const s = 0.72 + 0.85 * e * level;
-      blobs[i].style.transform =
-        `translate(-50%,-50%) translate(${x.toFixed(1)}%, ${y.toFixed(1)}%) scale(${s.toFixed(3)})`;
-    }
-    el.aura.style.filter = `blur(${(26 + 16 * (1 - level)).toFixed(1)}px)`;
+
+    // The box itself breathes, so the glow reads as belonging to it rather
+    // than sitting behind it.
+    const g = (total / halos.length) * level;
+    el.box.style.boxShadow =
+      `0 0 ${(34 + 76 * g).toFixed(0)}px ${(-6 + 20 * g).toFixed(0)}px rgba(52,134,255,${(0.3 + 0.42 * g).toFixed(3)}),` +
+      `0 0 ${(14 + 26 * g).toFixed(0)}px rgba(150,215,255,${(0.16 + 0.26 * g).toFixed(3)}),` +
+      'inset 0 1px 0 rgba(255,255,255,.18),' +
+      'inset 0 0 0 1px rgba(140,200,255,.16),' +
+      '0 30px 80px -30px rgba(0,0,0,.95)';
   }
 
   if (words.length) reveal(Math.min(1, (now - revealStart) / 3600));
@@ -247,6 +256,12 @@ if (!api?.listen) {
       el.gStatus.textContent = payload.status;
       el.status.style.color =
         payload.phase === 'listening' ? 'oklch(80% .12 350)' : 'oklch(76% .12 300)';
+    }
+    if (payload.model) {
+      const name = payload.model.replace(/^ggml-/, '').replace(/\.bin$/, '').toUpperCase();
+      const label = `${name} · ${payload.gpu ? 'GPU' : 'LOCAL'}`;
+      el.engine.textContent = label;
+      el.gEngine.textContent = label;
     }
     if (payload.text !== undefined && payload.text !== null) setText(payload.text);
   }).catch(err => console.error('Verba: listen() rejected', err));

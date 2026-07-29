@@ -46,6 +46,10 @@ struct State {
     text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     visual: Option<String>,
+    /// Shown in the overlay's meta row. Sent on state changes, not every tick.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    gpu: bool,
 }
 
 impl State {
@@ -57,6 +61,8 @@ impl State {
             bands: [0.0; audio::BANDS],
             text: None,
             visual: None,
+            model: None,
+            gpu: cfg!(feature = "gpu-vulkan"),
         }
     }
 }
@@ -170,6 +176,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
     // one rather than defaulting to ribbons until the first settings change.
     let mut boot = State::new("idle", "");
     boot.visual = Some(cfg.visual.clone());
+    boot.model = Some(cfg.model.clone());
     emit(&app, boot);
 
     log!("ready — hold Ctrl+Shift+Space to dictate");
@@ -193,7 +200,9 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 log!("● listening   [{}] {}", info.exe, info.title);
 
                 let _ = overlay.show();
-                emit(&app, State::new("listening", "LISTENING"));
+                let mut s = State::new("listening", "LISTENING");
+                s.model = Some(cfg.model.clone());
+                emit(&app, s);
             }
 
             Ok(hotkey::Event::Released) => {
@@ -292,6 +301,10 @@ fn overlay_demo(app: AppHandle, visual: &str) {
     s.visual = Some(visual.to_string());
     emit(&app, s);
     std::thread::sleep(Duration::from_millis(120));
+
+    let mut lead = State::new("listening", "LISTENING");
+    lead.model = Some(config::load().model);
+    emit(&app, lead);
 
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(8) {

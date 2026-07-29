@@ -51,21 +51,22 @@
 
 <div id="stage-glow" class="stage" hidden>
   <div id="glow-shell">
-    <!-- Aura sits behind the box. Because it lives in the page, the box's
-         backdrop-filter has real content to sample — this treatment does not
-         depend on the desktop showing through at all. -->
+    <!-- Three concentric rings hugging the box outline, each a conic gradient
+         masked to its border band and blurred. They live behind the box and
+         inside the page, so the box's backdrop-filter has real content to
+         sample — this treatment never depends on the desktop showing through.
+         The rings are the audio-reactive element; the box interior is text. -->
     <div id="aura">
-      <div class="blob b1"></div>
-      <div class="blob b2"></div>
-      <div class="blob b3"></div>
+      <div class="halo h1"></div>
+      <div class="halo h2"></div>
+      <div class="halo h3"></div>
     </div>
     <div id="glow-box">
       <div id="glow-meta">
         <span id="g-status">LISTENING</span>
         <span id="g-timer">0:00</span>
-        <span id="g-engine">SMALL.EN · LOCAL</span>
+        <span id="g-engine">LOCAL</span>
       </div>
-      <div id="g-bars"></div>
       <div id="g-line"></div>
     </div>
   </div>
