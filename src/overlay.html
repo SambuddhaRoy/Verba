@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Verba</title>
+<link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+<div id="wrap">
+  <div id="glass">
+    <div id="rim"></div>
+
+    <div id="wave">
+      <svg viewBox="0 0 1000 160" preserveAspectRatio="none">
+        <defs>
+          <filter id="bloom" x="-30%" y="-60%" width="160%" height="220%">
+            <feGaussianBlur stdDeviation="11"></feGaussianBlur>
+          </filter>
+        </defs>
+        <!-- The bloom is the same geometry re-drawn through a blur, exactly as
+             the design specifies. Cheaper and more faithful than a second pass. -->
+        <use href="#ribbons" filter="url(#bloom)" opacity=".78"></use>
+        <g id="ribbons" style="isolation:isolate">
+          <path fill="#6E7BFF" opacity=".78"></path>
+          <path fill="#FF4E9A" opacity=".76"></path>
+          <path fill="#A88BFF" opacity=".72"></path>
+          <path fill="#FFB070" opacity=".62"></path>
+          <path fill="#59E7C4" opacity=".50"></path>
+          <path fill="#FF9AD5" opacity=".55"></path>
+          <path fill="#FFFFFF" opacity=".90"></path>
+        </g>
+      </svg>
+      <div id="blend"></div>
+    </div>
+
+    <div id="body">
+      <div id="inner">
+        <div id="meta">
+          <span id="status">LISTENING</span>
+          <span id="timer">0:00</span>
+          <span id="engine">SMALL.EN · LOCAL</span>
+        </div>
+        <div id="line"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="wave.js"></script>
+</body>
+</html>

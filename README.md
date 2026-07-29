@@ -3,7 +3,7 @@
 Local-first speech-to-text for Windows 11. Hold `Ctrl+Shift+Space`, speak, release —
 text lands at your caret. Everything runs on-device.
 
-Status: **M1** — the working loop. No UI yet. See [PLAN.md](PLAN.md).
+Status: **M2** — overlay and ribbon visualiser. See [PLAN.md](PLAN.md).
 
 ## Run it
 
@@ -54,8 +54,24 @@ cd src-tauri && cargo test
 ```
 
 Covers the ring buffer's absolute indexing (marks must survive rotation), resampling,
-and clipboard save/restore. The clipboard test deliberately does not call `insert` —
-that would synthesize a real `Ctrl+V` into whatever window has focus.
+and keyboard event construction. The injection tests check `events_for` rather than
+calling `insert` — that would type into whatever window had focus while the suite ran.
+
+To exercise injection for real, with no model load and no microphone:
+
+```bash
+cd src-tauri && .\target\release\verba.exe --inject-test "hello"
+```
+
+## Notes on the overlay
+
+The window carries `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW`. The
+first is essential: if the overlay ever took focus, the caret would leave the target
+app and there would be nowhere to insert.
+
+Text is inserted by synthesizing `KEYEVENTF_UNICODE` events, not by staging on the
+clipboard and sending Ctrl+V. The clipboard route has three independent failure modes
+and destroys whatever the user had copied.
 
 ## Notes
 

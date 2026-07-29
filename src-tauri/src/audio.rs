@@ -125,6 +125,24 @@ impl Recorder {
     pub fn take_since(&self, abs: u64) -> Vec<f32> {
         self.ring.lock().unwrap().since(abs)
     }
+
+    /// Peak amplitude over the last `ms`, scaled for display.
+    ///
+    /// Peak rather than RMS: the wave should react to consonants and plosives,
+    /// which RMS smooths away over a 100ms window. The curve is deliberately
+    /// generous — speech rarely approaches full scale, and a visualiser that
+    /// only twitches reads as broken.
+    pub fn recent_level(&self, ms: u32) -> f32 {
+        let n = (self.sample_rate as usize * ms as usize) / 1000;
+        let r = self.ring.lock().unwrap();
+        let peak = r
+            .buf
+            .iter()
+            .rev()
+            .take(n)
+            .fold(0.0f32, |m, s| m.max(s.abs()));
+        (peak * 3.2).clamp(0.0, 1.0)
+    }
 }
 
 /// Resample to 16kHz mono for whisper.
