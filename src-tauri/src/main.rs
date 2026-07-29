@@ -3,9 +3,12 @@
 //! The engine runs on its own thread and emits state; the overlay is a pure
 //! consumer of that state and holds no logic of its own.
 
-// Console stays attached in release for now: the transcript and timing logs are
-// how this gets verified. Flip to `windows_subsystem = "windows"` once the tray
-// and history window make it redundant.
+// GUI subsystem: no console window when launched from Explorer. log::init()
+// attaches to the parent terminal when there is one, so CLI use still works.
+#![windows_subsystem = "windows"]
+
+#[macro_use]
+mod log;
 
 mod audio;
 mod focus;
@@ -21,7 +24,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 const MODEL: &str = "ggml-small.en-q5_1.bin";
-const EVENT: &str = "verba://state";
+const EVENT: &str = "verba:state";
 /// Below this, it's a stray keypress rather than speech.
 const MIN_SPEECH_MS: u128 = 300;
 /// How long the transcript stays up after insertion, to read back what landed.
@@ -45,17 +48,40 @@ impl State {
     }
 }
 
+/// Emit and report failure. Swallowing this is what hid the ACL denial that
+/// kept the overlay stuck at idle.
+fn emit(app: &AppHandle, state: State) {
+    if let Err(e) = app.emit(EVENT, state) {
+        log!("  emit failed: {e}");
+    }
+}
+
 fn model_path() -> Result<PathBuf> {
     if let Ok(p) = std::env::var("VERBA_MODEL") {
         return Ok(PathBuf::from(p));
     }
-    for base in ["../models", "models", "."] {
-        let p = PathBuf::from(base).join(MODEL);
+    let mut roots = Vec::new();
+    // Next to the .exe first: double-clicked from Explorer, the working
+    // directory is not necessarily the install folder.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            roots.push(dir.join("models"));
+            roots.push(dir.to_path_buf());
+        }
+    }
+    roots.push(PathBuf::from("../models"));
+    roots.push(PathBuf::from("models"));
+
+    for root in &roots {
+        let p = root.join(MODEL);
         if p.exists() {
             return Ok(p);
         }
     }
-    Err(anyhow!("{MODEL} not found. Put it in models/, or set VERBA_MODEL."))
+    Err(anyhow!(
+        "{MODEL} not found. Looked in: {}. Set VERBA_MODEL to override.",
+        roots.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+    ))
 }
 
 fn engine_loop(app: AppHandle) -> Result<()> {
@@ -67,7 +93,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
         .get_webview_window("overlay")
         .ok_or_else(|| anyhow!("overlay window missing"))?;
 
-    println!("\nready — hold Ctrl+Shift+Space to dictate\n");
+    log!("ready — hold Ctrl+Shift+Space to dictate");
 
     let mut listening = false;
     let mut mark = 0u64;
@@ -84,11 +110,11 @@ fn engine_loop(app: AppHandle) -> Result<()> {
 
                 // Both fields get logged: writing app-routing rules in M3 means
                 // knowing what the exe and title actually look like.
-                let app_info = focus::foreground();
-                println!("● listening   [{}] {}", app_info.exe, app_info.title);
+                let info = focus::foreground();
+                log!("● listening   [{}] {}", info.exe, info.title);
 
                 let _ = overlay.show();
-                let _ = app.emit(EVENT, State::new("listening", "LISTENING"));
+                emit(&app, State::new("listening", "LISTENING"));
             }
 
             Ok(hotkey::Event::Released) => {
@@ -97,13 +123,13 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 let raw = recorder.take_since(mark);
 
                 if held.as_millis() < MIN_SPEECH_MS || raw.is_empty() {
-                    println!("  too short, ignored\n");
-                    let _ = app.emit(EVENT, State::new("idle", ""));
+                    log!("  too short, ignored");
+                    emit(&app, State::new("idle", ""));
                     let _ = overlay.hide();
                     continue;
                 }
 
-                let _ = app.emit(EVENT, State::new("transcribing", "TRANSCRIBING"));
+                emit(&app, State::new("transcribing", "TRANSCRIBING"));
 
                 let pcm = audio::to_16k(&raw, recorder.sample_rate())?;
                 let t0 = Instant::now();
@@ -111,28 +137,27 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 let took = t0.elapsed();
 
                 if text.is_empty() {
-                    println!("  (silence)\n");
-                    let _ = app.emit(EVENT, State::new("idle", ""));
+                    log!("  (silence)");
+                    emit(&app, State::new("idle", ""));
                     let _ = overlay.hide();
                     continue;
                 }
 
-                println!("  {text}");
-                println!(
+                log!("  {text}");
+                log!(
                     "  {:.1}s audio · whisper {}ms · {:.1}x realtime",
                     held.as_secs_f32(),
                     took.as_millis(),
-                    held.as_secs_f32() / took.as_secs_f32().max(0.001),
+                    held.as_secs_f32() / took.as_secs_f32().max(0.001)
                 );
 
                 let mut done = State::new("transcribing", "INSERTED");
                 done.text = Some(text.clone());
-                let _ = app.emit(EVENT, done);
+                emit(&app, done);
 
                 if let Err(e) = inject::insert(&text) {
-                    eprintln!("  insert failed: {e}");
+                    log!("  insert failed: {e}");
                 }
-                println!();
 
                 hide_at = Some(Instant::now() + LINGER);
             }
@@ -142,10 +167,10 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                     let mut s = State::new("listening", "LISTENING");
                     s.level = recorder.recent_level(120);
                     s.elapsed = started.elapsed().as_secs_f32();
-                    let _ = app.emit(EVENT, s);
+                    emit(&app, s);
                 } else if hide_at.is_some_and(|t| Instant::now() >= t) {
                     hide_at = None;
-                    let _ = app.emit(EVENT, State::new("idle", ""));
+                    emit(&app, State::new("idle", ""));
                     let _ = overlay.hide();
                 }
             }
@@ -156,27 +181,62 @@ fn engine_loop(app: AppHandle) -> Result<()> {
     Ok(())
 }
 
-fn main() -> Result<()> {
-    unsafe {
-        let _ = windows::Win32::System::Console::SetConsoleOutputCP(65001);
+/// Drive the overlay through its states with no microphone and no model, so the
+/// visuals can be checked on their own.
+fn overlay_demo(app: AppHandle) {
+    let Some(win) = app.get_webview_window("overlay") else { return };
+    let _ = win.show();
+    log!("overlay demo — listening 6s, then transcript 6s");
+
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(6) {
+        let mut s = State::new("listening", "LISTENING");
+        // Fake a speaking rhythm so the ribbons visibly breathe.
+        let t = start.elapsed().as_secs_f32();
+        s.level = 0.45 + 0.55 * (t * 2.7).sin().abs();
+        s.elapsed = t;
+        emit(&app, s);
+        std::thread::sleep(TICK);
     }
+
+    let mut done = State::new("transcribing", "INSERTED");
+    done.text = Some(
+        "Thanks for sending the deck over — I read the pricing section this \
+         morning and it mostly holds up."
+            .into(),
+    );
+    emit(&app, done);
+    std::thread::sleep(Duration::from_secs(6));
+
+    emit(&app, State::new("idle", ""));
+    let _ = win.hide();
+    app.exit(0);
+}
+
+fn main() -> Result<()> {
+    log::init();
+    log!("verba — log at {}", log::path().display());
+
+    let args: Vec<String> = std::env::args().collect();
+    let arg1 = args.get(1).map(String::as_str);
 
     // `verba --inject-test "some text"` — exercises the injection path alone,
     // with no model load and no microphone. Focus a text box during the count.
-    let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) == Some("--inject-test") {
+    if arg1 == Some("--inject-test") {
         let text = args.get(2).map(String::as_str).unwrap_or("Verba injection test.");
         for n in (1..=4).rev() {
-            println!("focus a text box… {n}");
+            log!("focus a text box… {n}");
             std::thread::sleep(Duration::from_secs(1));
         }
         inject::insert(text)?;
-        println!("injected {} chars", text.chars().count());
+        log!("injected {} chars", text.chars().count());
         return Ok(());
     }
 
+    let demo = arg1 == Some("--overlay-test");
+
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(move |app| {
             let overlay_win = app
                 .get_webview_window("overlay")
                 .ok_or("overlay window missing")?;
@@ -186,8 +246,10 @@ fn main() -> Result<()> {
             // The audio stream is !Send on Windows, so the engine owns everything
             // on one thread rather than sharing it.
             std::thread::Builder::new().name("engine".into()).spawn(move || {
-                if let Err(e) = engine_loop(handle) {
-                    eprintln!("engine stopped: {e:#}");
+                if demo {
+                    overlay_demo(handle);
+                } else if let Err(e) = engine_loop(handle) {
+                    log!("engine stopped: {e:#}");
                 }
             })?;
             Ok(())
