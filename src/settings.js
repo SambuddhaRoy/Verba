@@ -47,6 +47,17 @@ if (listen) {
     }
     reload();
   }).catch(e => console.error('download listen rejected', e));
+
+  listen('verba:engine', ({ payload }) => {
+    $('engine-hint').textContent = payload.error
+      ? `${payload.message}: ${payload.error}`
+      : payload.message;
+    if (!payload.done) return;
+    if (payload.error) toast(`Install failed: ${payload.error}`);
+    else toast(`${payload.id} installed`);
+    // Availability changed, so the engine list and model rows are both stale.
+    reload();
+  }).catch(e => console.error('engine listen rejected', e));
 }
 
 function toast(msg) {
@@ -262,15 +273,30 @@ async function boot() {
     b.title = en.note;
     if (!en.available) b.classList.add('off');
     b.onclick = () => {
-      if (!en.available) {
-        $('engine-hint').textContent = `${en.name}: ${en.note} Not built into this version.`;
-        toast(`${en.name} is not available yet`);
+      $('engine-hint').textContent = en.note;
+      if (en.available) {
+        cfg.engine = en.id;
+        // Engines name their models differently, so carry the selection over
+        // to something this one can actually load.
+        const first = s.models.find(m => m.engine === en.id);
+        if (first && !s.models.some(m => m.file === cfg.model && m.engine === en.id)) {
+          cfg.model = first.file;
+        }
+        render();
+        save('Engine set');
         return;
       }
-      cfg.engine = en.id;
-      $('engine-hint').textContent = en.note;
-      render();
-      save('Engine set');
+      if (en.installable) {
+        b.disabled = true;
+        b.textContent = 'Installing…';
+        invoke('install_engine', { id: en.id }).catch(err => {
+          b.disabled = false;
+          b.textContent = en.name;
+          toast(`${err}`);
+        });
+      } else {
+        toast(`${en.name} is not built into this version`);
+      }
     };
     segs.appendChild(b);
   });

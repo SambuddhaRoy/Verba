@@ -45,21 +45,30 @@ pub struct EngineInfo {
     pub id: &'static str,
     pub name: &'static str,
     pub available: bool,
+    /// True if Verba can set this up itself from the settings window.
+    pub installable: bool,
     pub note: &'static str,
 }
 
 pub fn engines() -> Vec<EngineInfo> {
     let have = available_engines();
+    let can_install = installable_engines();
     [
         ("whisper.cpp", "whisper.cpp",
-         "Reaches any GPU through Vulkan and needs no Python. Batch, not streaming."),
-        ("parakeet", "Parakeet / sherpa-onnx",
-         "NVIDIA Parakeet and Moonshine. Streams natively, so text appears while you speak. Needs a sherpa-onnx backend."),
+         "Compiled in. Reaches any GPU through Vulkan and needs no Python."),
         ("faster-whisper", "faster-whisper",
-         "CTranslate2. Needs a Python runtime, and its GPU path is CUDA-only — no Vulkan, no Intel graphics."),
+         "CTranslate2, run as a Python sidecar Verba installs for you. GPU path is CUDA-only — on AMD or Intel graphics it runs on CPU."),
+        ("parakeet", "Parakeet / sherpa-onnx",
+         "NVIDIA Parakeet and Moonshine, which stream natively. Needs a sherpa-onnx backend that is not built into this version."),
     ]
     .into_iter()
-    .map(|(id, name, note)| EngineInfo { id, name, note, available: have.contains(&id) })
+    .map(|(id, name, note)| EngineInfo {
+        id,
+        name,
+        note,
+        available: have.contains(&id),
+        installable: can_install.contains(&id),
+    })
     .collect()
 }
 
@@ -197,6 +206,22 @@ const CATALOGUE: &[Entry] = &[
     ("ggml-large-v3-q5_0.bin", "Whisper Large v3", "whisper.cpp", 1031, 4600, false, "MIT",
      "Most accurate Whisper. Roughly 6x slower than Turbo for a small gain."),
 
+    // --- faster-whisper, CTranslate2 --------------------------------------
+    // Named by Hugging Face id, not a file: faster-whisper fetches and caches
+    // its own weights on first use, so there is nothing here to download.
+    ("tiny.en", "FW Tiny (English)", "faster-whisper", 75, 500, false, "MIT",
+     "Fetched automatically on first use. Fastest, least accurate."),
+    ("base.en", "FW Base (English)", "faster-whisper", 145, 700, false, "MIT",
+     "Fetched automatically on first use."),
+    ("small.en", "FW Small (English)", "faster-whisper", 484, 1400, false, "MIT",
+     "Fetched automatically on first use. The usual default."),
+    ("medium.en", "FW Medium (English)", "faster-whisper", 1530, 3000, false, "MIT",
+     "Fetched automatically on first use. Wants a CUDA GPU."),
+    ("large-v3", "FW Large v3", "faster-whisper", 3090, 5000, false, "MIT",
+     "Fetched automatically on first use. CUDA strongly recommended."),
+    ("distil-large-v3", "FW Distil-Large v3", "faster-whisper", 1510, 3000, false, "MIT",
+     "Distilled: close to Large v3 accuracy at roughly half the size. English."),
+
     // --- NVIDIA Parakeet, ONNX via sherpa-onnx ----------------------------
     // Not GGML, so whisper.cpp cannot load these at all. Listed because
     // Parakeet is the streaming path and worth knowing about.
@@ -216,12 +241,21 @@ const CATALOGUE: &[Entry] = &[
      "Very fast on CPU. English, short-form."),
 ];
 
-/// Engines this build can actually run.
+/// Engines this build can actually run right now.
 pub fn available_engines() -> Vec<&'static str> {
-    // Only whisper.cpp is wired up. Parakeet needs a sherpa-onnx backend and
-    // faster-whisper needs a Python sidecar; both are listed in the UI as
-    // unavailable rather than pretended into existence.
-    vec!["whisper.cpp"]
+    // whisper.cpp is compiled in. faster-whisper depends on a Python
+    // environment that Verba creates on demand, so it becomes available only
+    // once that exists. Parakeet needs a sherpa-onnx backend that is not built.
+    let mut v = vec!["whisper.cpp"];
+    if crate::fasterwhisper::is_installed() {
+        v.push("faster-whisper");
+    }
+    v
+}
+
+/// Engines that can be installed from within the app.
+pub fn installable_engines() -> Vec<&'static str> {
+    vec!["faster-whisper"]
 }
 
 pub fn catalogue() -> Vec<ModelInfo> {
@@ -243,9 +277,13 @@ pub fn catalogue() -> Vec<ModelInfo> {
                 // sherpa-onnx publishes these as release archives, not single files.
                 "https://github.com/k2-fsa/sherpa-onnx/releases".into()
             },
-            // Only meaningful for single-file GGML models; ONNX models are
-            // directories, and nothing loads them yet regardless.
-            installed: *engine == "whisper.cpp" && dir.join(file).exists(),
+            // GGML models are single files we manage. faster-whisper fetches
+            // its own weights, so "installed" there means the engine is ready.
+            installed: match *engine {
+                "whisper.cpp" => dir.join(file).exists(),
+                "faster-whisper" => crate::fasterwhisper::is_installed(),
+                _ => false,
+            },
         })
         .collect()
 }
