@@ -186,15 +186,15 @@ const CATALOGUE: &[Entry] = &[
      "Quick on any machine. Fine for short, plain dictation."),
     ("ggml-small.en-q5_1.bin", "Whisper Small (English)", "whisper.cpp", 181, 1100, false, "MIT",
      "Best accuracy per megabyte. The sensible default on CPU."),
-    ("ggml-small-q5_1.bin", "Whisper Small (multilingual)", "whisper.cpp", 190, 1200, false, "MIT",
+    ("ggml-small-q5_1.bin", "Whisper Small (multilingual)", "whisper.cpp", 181, 1200, false, "MIT",
      "Small, with 99 languages instead of English only."),
     ("ggml-medium.en-q5_0.bin", "Whisper Medium (English)", "whisper.cpp", 514, 2600, false, "MIT",
      "Better on jargon and accents. Wants GPU offload."),
     ("ggml-large-v3-turbo-q5_0.bin", "Whisper Large v3 Turbo", "whisper.cpp", 547, 3200, false, "MIT",
      "Four-layer decoder: near-large accuracy at a fraction of the cost. Multilingual."),
-    ("ggml-large-v3-turbo.bin", "Whisper Large v3 Turbo (f16)", "whisper.cpp", 1620, 4200, false, "MIT",
+    ("ggml-large-v3-turbo.bin", "Whisper Large v3 Turbo (f16)", "whisper.cpp", 1549, 4200, false, "MIT",
      "Unquantised Turbo. Marginal gain over q5 unless you have VRAM to spare."),
-    ("ggml-large-v3-q5_0.bin", "Whisper Large v3", "whisper.cpp", 1080, 4600, false, "MIT",
+    ("ggml-large-v3-q5_0.bin", "Whisper Large v3", "whisper.cpp", 1031, 4600, false, "MIT",
      "Most accurate Whisper. Roughly 6x slower than Turbo for a small gain."),
 
     // --- NVIDIA Parakeet, ONNX via sherpa-onnx ----------------------------

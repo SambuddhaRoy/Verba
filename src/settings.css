@@ -343,6 +343,43 @@ input[type=range]::-webkit-slider-thumb {
 .model.on .bar > div { background: oklch(74% .13 300); box-shadow: 0 0 8px oklch(72% .13 300 / .8); }
 .model .note { margin-top: 8px; font: 400 11.5px/1.45 var(--sans); color: rgba(255,255,255,.45); }
 .model .miss { color: rgba(255, 190, 120, .75); }
+.model .act { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.model .why {
+  font: 500 9.5px var(--mono);
+  letter-spacing: .06em;
+  color: rgba(255, 190, 120, .8);
+  cursor: help;
+  text-decoration: underline dotted;
+}
+.btn.tiny { height: 26px; padding: 0 12px; font-size: 11px; border-radius: 13px; }
+.btn:disabled { opacity: .55; cursor: default; }
+
+/* Download progress. Collapsed to nothing until a transfer starts, so an
+   installed model shows no empty track. */
+.model .dl {
+  position: relative;
+  height: 0;
+  margin-top: 0;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .08);
+  overflow: hidden;
+  transition: height .3s ease, margin-top .3s ease;
+}
+.model.downloading .dl { height: 6px; margin-top: 10px; }
+.model .dl-fill {
+  width: 0;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, oklch(80% .13 350), oklch(70% .13 300));
+  box-shadow: 0 0 12px -1px oklch(74% .13 320 / .8);
+  transition: width .25s ease;
+}
+.model .dl-txt {
+  position: absolute;
+  right: 0; top: -16px;
+  font: 500 9.5px var(--mono);
+  color: rgba(255, 255, 255, .5);
+}
 
 /* ------------------------------------------------------------- appearance */
 

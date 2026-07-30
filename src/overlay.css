@@ -63,21 +63,26 @@ html, body {
     margin-top .6s ease;
 }
 
-/* Refracting rim band. 1.2px gradient masked to the border only —
-   mask-composite: exclude punches out the interior. */
-#rim {
+/* Field the frosting has something to blur. Deliberately desaturated and
+   near-monochrome: the ribbons are the only colour in this treatment. */
+#field {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1.2px;
-  background: linear-gradient(132deg,
-    rgba(255, 150, 205, .85),
-    rgba(160, 135, 255, .50) 38%,
-    rgba(255, 255, 255, .10) 58%,
-    rgba(255, 180, 110, .70));
-  -webkit-mask: linear-gradient(#000, #000) content-box, linear-gradient(#000, #000);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
+  background:
+    radial-gradient(120% 140% at 50% -20%, rgba(150, 165, 220, .22), transparent 70%),
+    radial-gradient(80% 120% at 12% 120%, rgba(120, 130, 190, .16), transparent 72%);
+  opacity: 0;
+  transition: opacity .7s ease;
+  pointer-events: none;
+}
+
+#frost {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  backdrop-filter: blur(26px) saturate(140%) brightness(.72);
+  -webkit-backdrop-filter: blur(26px) saturate(140%) brightness(.72);
   opacity: 0;
   transition: opacity .7s ease;
   pointer-events: none;
@@ -133,17 +138,16 @@ html, body {
 #timer, #g-timer   { font: 600 11.5px var(--sans); color: rgba(255,255,255,.7); }
 #engine, #g-engine { margin-left: auto; color: rgba(255,255,255,.3); }
 
-/* Transcript well. Inner radius 22 against the outer 34 — concentric. */
+/* Minimalist: no well, no inset rule, no second surface. The text sits
+   directly on the frosted panel and the wave stays the only ornament. */
 #line {
-  border-radius: 22px;
-  background: rgba(255, 255, 255, .03);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1);
-  padding: 18px 20px;
+  position: relative;
+  padding: 4px 4px 2px;
   font: 400 18px/1.72 var(--sans);
   color: rgba(255, 255, 255, .96);
   letter-spacing: -.006em;
   text-wrap: pretty;
-  min-height: 60px;
+  min-height: 32px;
 }
 
 #line span, #g-line span { opacity: 0; transition: opacity .45s ease; }

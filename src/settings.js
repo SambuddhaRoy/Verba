@@ -8,9 +8,46 @@
 const invoke = window.__TAURI__?.core?.invoke;
 const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
 
+const listen = window.__TAURI__?.event?.listen;
 const $ = id => document.getElementById(id);
 let cfg = null;
 let saveTimer = null;
+/** Model to select automatically once its download finishes. */
+let pendingSelect = null;
+
+/* Download progress. Wired before boot() so a transfer already running when the
+ * window opens still reports. */
+if (listen) {
+  listen('verba:download', ({ payload }) => {
+    const row = document.querySelector(`.model[data-file="${CSS.escape(payload.file)}"]`);
+    if (!row) return;
+
+    if (!payload.done) {
+      const pct = payload.total ? (payload.received / payload.total) * 100 : 0;
+      row.querySelector('.dl-fill').style.width = `${pct.toFixed(1)}%`;
+      row.querySelector('.dl-txt').textContent =
+        `${(payload.received / 1048576).toFixed(0)} / ${(payload.total / 1048576).toFixed(0)} MB`;
+      return;
+    }
+
+    row.classList.remove('downloading');
+    if (payload.error) {
+      toast(`Download failed: ${payload.error}`);
+      pendingSelect = null;
+      reload();
+      return;
+    }
+    toast('Downloaded');
+    // Selecting it here is the point of remembering: download then use, in one
+    // action rather than two.
+    if (pendingSelect === payload.file) {
+      cfg.model = payload.file;
+      pendingSelect = null;
+      save('Model downloaded and selected');
+    }
+    reload();
+  }).catch(e => console.error('download listen rejected', e));
+}
 
 function toast(msg) {
   const t = $('toast');
@@ -244,40 +281,72 @@ async function boot() {
   const wrap = $('models');
   const widest = Math.max(...s.models.map(x => x.size_mb));
   const engineOf = id => s.engines.find(e => e.id === id);
+
   s.models.forEach(m => {
-    const b = document.createElement('button');
-    b.className = 'model';
-    b.dataset.file = m.file;
-    b.dataset.engine = m.engine;
-    const usable = engineOf(m.engine)?.available && m.installed;
+    const row = document.createElement('div');
+    row.className = 'model';
+    row.dataset.file = m.file;
+    row.dataset.engine = m.engine;
+    const built = engineOf(m.engine)?.available;
     const recommended = m.file === s.recommendation.model;
-    const tag = !engineOf(m.engine)?.available ? 'ENGINE NOT BUILT'
-              : m.installed ? 'INSTALLED' : 'NOT DOWNLOADED';
-    b.innerHTML = `
+    const tag = !built ? 'ENGINE NOT BUILT' : m.installed ? 'INSTALLED' : 'NOT DOWNLOADED';
+
+    row.innerHTML = `
       <div class="top">
         <span class="nm">${m.name}</span>
         <span class="tag">${tag}</span>
         ${m.streaming ? '<span class="stream">STREAMING</span>' : ''}
         ${recommended ? '<span class="rec">RECOMMENDED</span>' : ''}
+        <span class="act"></span>
       </div>
       <div class="bar"><div style="width:${Math.round(m.size_mb / widest * 100)}%"></div></div>
-      <div class="note${usable ? '' : ' miss'}">
+      <div class="note${built && m.installed ? '' : ' miss'}">
         ${m.size_mb} MB · needs ~${(m.needs_mb / 1024).toFixed(1)} GB · ${m.license} · ${m.note}
-        ${m.installed || m.engine !== 'whisper.cpp' ? '' : '<br>Place the file in the models folder to use it.'}
-      </div>`;
-    b.onclick = () => {
-      if (!engineOf(m.engine)?.available) {
-        toast(`Needs the ${engineOf(m.engine)?.name} engine, which isn't built yet`);
-        return;
-      }
-      if (!m.installed) { toast('That model is not downloaded yet'); return; }
+      </div>
+      <div class="dl"><div class="dl-fill"></div><span class="dl-txt"></span></div>`;
+
+    const act = row.querySelector('.act');
+    if (!built) {
+      const why = document.createElement('span');
+      why.className = 'why';
+      why.textContent = 'why?';
+      why.onclick = () => toast(`${engineOf(m.engine)?.name}: ${engineOf(m.engine)?.note}`);
+      act.appendChild(why);
+    } else if (!m.installed) {
+      const dl = document.createElement('button');
+      dl.className = 'btn tiny';
+      dl.textContent = `Download ${m.size_mb} MB`;
+      dl.onclick = e => {
+        e.stopPropagation();
+        dl.disabled = true;
+        dl.textContent = 'Starting…';
+        row.classList.add('downloading');
+        // Remember what to select once it lands, so downloading a model and
+        // then using it is one click rather than two.
+        pendingSelect = m.file;
+        invoke('download_model', { file: m.file }).catch(err => {
+          row.classList.remove('downloading');
+          dl.disabled = false;
+          dl.textContent = `Download ${m.size_mb} MB`;
+          toast(`${err}`);
+        });
+      };
+      act.appendChild(dl);
+    }
+
+    row.onclick = () => {
+      if (!built) { toast(`Needs the ${engineOf(m.engine)?.name} engine, which isn't built yet`); return; }
+      if (!m.installed) { toast('Download it first'); return; }
       cfg.model = m.file;
       render();
-      save('Model set — takes effect on next load');
+      save('Model set — takes effect on next dictation');
     };
-    wrap.appendChild(b);
+    wrap.appendChild(row);
   });
 
+  $('models-dir').textContent = s.models_dir;
+  $('open-models').onclick = () =>
+    invoke('reveal_models_dir').catch(e => toast(`${e}`));
   $('hk-capture').onclick = () => (arming ? disarmCapture() : armCapture());
 
   document.querySelectorAll('.vis').forEach(b => {
@@ -288,6 +357,16 @@ async function boot() {
   $('cfgpath').textContent = s.config_path;
 
   render();
+}
+
+/** Rebuild the panels that depend on what's on disk. */
+async function reload() {
+  const keep = document.querySelector('.nav.on')?.dataset.panel;
+  $('models').innerHTML = '';
+  $('engine').innerHTML = '';
+  $('microphone').innerHTML = '<option value="">System default</option>';
+  await boot();
+  if (keep) document.querySelector(`.nav[data-panel="${keep}"]`)?.click();
 }
 
 boot().catch(e => toast(`${e}`));
