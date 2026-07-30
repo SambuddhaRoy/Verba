@@ -13,6 +13,7 @@ mod log;
 mod audio;
 mod config;
 mod download;
+mod fasterwhisper;
 mod focus;
 mod hardware;
 mod hotkey;
@@ -174,6 +175,39 @@ fn download_model(app: AppHandle, file: String) -> Result<(), String> {
     std::thread::Builder::new()
         .name("download".into())
         .spawn(move || download::fetch(&app, &entry.file, &entry.url))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Set up an engine that Verba can install itself. Returns immediately; follow
+/// `verba:engine` for progress.
+#[tauri::command]
+fn install_engine(app: AppHandle, id: String) -> Result<(), String> {
+    if id != "faster-whisper" {
+        return Err(format!("{id} cannot be installed from here"));
+    }
+    std::thread::Builder::new()
+        .name("engine-install".into())
+        .spawn(move || {
+            let say = |msg: &str, done: bool, error: Option<String>| {
+                let _ = app.emit(
+                    "verba:engine",
+                    serde_json::json!({ "id": "faster-whisper", "message": msg,
+                                        "done": done, "error": error }),
+                );
+            };
+            let result = fasterwhisper::install(|m| {
+                log!("faster-whisper: {m}");
+                say(m, false, None);
+            });
+            match result {
+                Ok(()) => say("Installed", true, None),
+                Err(e) => {
+                    log!("faster-whisper install failed: {e}");
+                    say("Failed", true, Some(e.to_string()));
+                }
+            }
+        })
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -528,6 +562,7 @@ fn main() -> Result<()> {
             get_state,
             set_config,
             download_model,
+            install_engine,
             reveal_models_dir
         ])
         .setup(move |app| {

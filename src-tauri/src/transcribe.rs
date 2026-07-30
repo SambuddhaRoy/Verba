@@ -8,7 +8,36 @@ use anyhow::Result;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
-use crate::{config, stt};
+use crate::{config, fasterwhisper, stt};
+
+/// The loaded model, whichever engine it belongs to. An enum rather than a
+/// trait object: there are two variants and no third on the horizon, so a trait
+/// would only add indirection.
+enum Backend {
+    WhisperCpp(stt::Engine),
+    FasterWhisper(fasterwhisper::Sidecar),
+}
+
+impl Backend {
+    fn transcribe(&mut self, pcm: &[f32], quick: bool) -> Result<String> {
+        match self {
+            Backend::WhisperCpp(e) => e.transcribe(pcm, quick),
+            Backend::FasterWhisper(s) => s.transcribe(pcm, quick),
+        }
+    }
+
+    fn load(cfg: &config::Config) -> Result<Self> {
+        match cfg.engine.as_str() {
+            "faster-whisper" => {
+                Ok(Backend::FasterWhisper(fasterwhisper::Sidecar::new(&cfg.model)?))
+            }
+            _ => Ok(Backend::WhisperCpp(stt::Engine::new(
+                &crate::model_path(&cfg.model)?,
+                cfg.threads,
+            )?)),
+        }
+    }
+}
 
 pub enum Job {
     Transcribe {
@@ -52,8 +81,10 @@ pub fn spawn() -> Result<Worker> {
 }
 
 fn run(jobs: Receiver<Job>, done: Sender<Done>) {
-    let mut engine: Option<stt::Engine> = None;
-    let mut loaded = String::new();
+    let mut engine: Option<Backend> = None;
+    // Keyed on engine *and* model: switching engine has to reload even when
+    // the model name happens to be unchanged.
+    let mut loaded = (String::new(), String::new());
 
     while let Ok(first) = jobs.recv() {
         // Coalesce a backlog. If passes are queuing faster than they complete,
@@ -79,8 +110,10 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>) {
         let (pcm, utterance, final_pass) = match job {
             Job::Unload => {
                 if engine.is_some() {
+                    // Dropping the sidecar variant also shuts its interpreter
+                    // down, via Drop.
                     engine = None;
-                    loaded.clear();
+                    loaded = (String::new(), String::new());
                     crate::log!("model unloaded");
                 }
                 continue;
@@ -89,19 +122,13 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>) {
         };
 
         let cfg = config::load();
-        if engine.is_none() || loaded != cfg.model {
-            let path = match crate::model_path(&cfg.model) {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = done.send(Done::Failed(e.to_string()));
-                    continue;
-                }
-            };
-            crate::log!("  loading {}", cfg.model);
-            match stt::Engine::new(&path, cfg.threads) {
-                Ok(e) => {
-                    engine = Some(e);
-                    loaded = cfg.model.clone();
+        let want = (cfg.engine.clone(), cfg.model.clone());
+        if engine.is_none() || loaded != want {
+            crate::log!("  loading {} via {}", cfg.model, cfg.engine);
+            match Backend::load(&cfg) {
+                Ok(b) => {
+                    engine = Some(b);
+                    loaded = want;
                 }
                 Err(e) => {
                     let _ = done.send(Done::Failed(e.to_string()));
@@ -109,7 +136,7 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>) {
                 }
             }
         }
-        let Some(eng) = engine.as_ref() else { continue };
+        let Some(eng) = engine.as_mut() else { continue };
 
         let slice: &[f32] = if final_pass {
             &pcm
