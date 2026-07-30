@@ -12,14 +12,14 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
 
-/// One energy band per ribbon, so the visualiser tracks the shape of the voice
-/// rather than just its loudness.
-pub const BANDS: usize = 7;
+/// Spectrum resolution sent to the overlay. Enough for a wave to have visible
+/// shape along its length rather than one amplitude per ribbon.
+pub const BANDS: usize = 24;
 const FFT_SIZE: usize = 2048;
 /// Speech range: fundamentals at the bottom, formants through the middle,
 /// sibilance at the top.
-const F_LOW: f32 = 80.0;
-const F_HIGH: f32 = 8_000.0;
+const F_LOW: f32 = 70.0;
+const F_HIGH: f32 = 7_500.0;
 
 /// Whisper is trained on 16kHz mono.
 pub const TARGET_RATE: u32 = 16_000;
@@ -57,13 +57,34 @@ impl Ring {
 }
 
 /// Short-time spectrum of the incoming audio, bucketed into `BANDS`.
+///
+/// Normalisation is adaptive rather than a fixed dB window. A fixed window has
+/// to guess the microphone's gain, and guessing low pins everything near zero —
+/// which is exactly what made earlier versions of this look dead. Tracking a
+/// per-band floor and ceiling means the meter spans its full range whatever the
+/// input level, the way any real audio visualiser behaves.
 struct Analyzer {
     fft: Arc<dyn realfft::RealToComplex<f32>>,
     window: Vec<f32>,
     input: Vec<f32>,
     spectrum: Vec<realfft::num_complex::Complex<f32>>,
     edges: [usize; BANDS + 1],
+    /// One ceiling for the whole spectrum, not one per band. Per-band AGC
+    /// normalises every band to roughly the same height and throws away the
+    /// spectral shape — which is the only thing that makes this read as a
+    /// visualiser rather than a row of twitching lights.
+    ceiling: f32,
+    /// Slow minimum-follower per band: the room's noise floor, which really is
+    /// different at 80Hz and 6kHz.
+    floor: [f32; BANDS],
 }
+
+/// Per-frame ceiling decay. At 30fps this fades a peak over roughly three
+/// seconds — long enough to stay steady across a sentence, short enough to
+/// re-scale when you move closer to the microphone.
+const CEIL_DECAY: f32 = 0.988;
+/// Upward creep on the floor, so it recovers if the room gets noisier.
+const FLOOR_CREEP: f32 = 0.0006;
 
 impl Analyzer {
     fn new(sample_rate: u32) -> Self {
@@ -88,7 +109,15 @@ impl Analyzer {
             *edge = to_bin(F_LOW * (F_HIGH / F_LOW).powf(t));
         }
 
-        Self { fft, window, input: vec![0.0; FFT_SIZE], spectrum, edges }
+        Self {
+            fft,
+            window,
+            input: vec![0.0; FFT_SIZE],
+            spectrum,
+            edges,
+            ceiling: 0.0,
+            floor: [f32::MAX; BANDS],
+        }
     }
 
     fn analyse(&mut self, tail: &[f32]) -> [f32; BANDS] {
@@ -106,22 +135,55 @@ impl Analyzer {
             return [0.0; BANDS];
         }
 
-        let mut out = [0.0f32; BANDS];
+        // Pass one: raw band amplitudes, and track the floor.
+        let mut amp = [0.0f32; BANDS];
+        let mut loudest = 0.0f32;
         for b in 0..BANDS {
             let lo = self.edges[b];
             let hi = self.edges[b + 1].max(lo + 1).min(self.spectrum.len());
-            let count = (hi - lo).max(1) as f32;
+
+            // Total power, not the mean. Dividing by bin count penalised the
+            // wide upper bands into permanent silence, since log spacing gives
+            // them many more bins than the narrow low ones.
             let power: f32 = self.spectrum[lo..hi].iter().map(|c| c.norm_sqr()).sum();
-            let mag = (power / count).sqrt() / (FFT_SIZE as f32 * 0.25);
-            // Work in dB: linear magnitude spends most of its range on silence,
-            // so a linear reading barely moves for ordinary speech.
-            let db = 20.0 * (mag + 1e-9).log10();
-            // Window on the range speech actually occupies. A wider one (-55..0)
-            // maps normal talking into the middle third and the visualiser looks
-            // inert; -48..-12 spends the full range where the voice lives.
-            let norm = ((db + 48.0) / 36.0).clamp(0.0, 1.0);
-            // Slight expansion for contrast between syllables and silence.
-            out[b] = norm.powf(1.4);
+            let mut a = power.sqrt() / (FFT_SIZE as f32 * 0.25);
+
+            // Speech rolls off steeply above the formants. Without a tilt the
+            // top third of the spectrum never moves and only one end animates.
+            a *= 1.0 + 2.2 * (b as f32 / BANDS as f32);
+            amp[b] = a;
+
+            // Floor: minimum-follower, instant down, slow creep up.
+            self.floor[b] = if a < self.floor[b] {
+                a
+            } else {
+                self.floor[b] * (1.0 - FLOOR_CREEP) + a * FLOOR_CREEP
+            };
+            if a > loudest {
+                loudest = a;
+            }
+        }
+
+        // Ceiling attacks over a few frames rather than instantly. Snapping to
+        // each new maximum makes the loudest band read exactly 1.0 every time
+        // and everything else collapse relative to it, which looks like a
+        // single light flicking on rather than a spectrum.
+        self.ceiling = if loudest > self.ceiling {
+            self.ceiling + (loudest - self.ceiling) * 0.35
+        } else {
+            self.ceiling * CEIL_DECAY
+        };
+
+        let mut out = [0.0f32; BANDS];
+        for b in 0..BANDS {
+            // Require real headroom above the floor, or a silent room gets
+            // normalised into full-scale hiss.
+            let base = self.floor[b] * 1.6;
+            let top = self.ceiling.max(base * 4.0).max(1e-5);
+            let v = ((amp[b] - base) / (top - base)).clamp(0.0, 1.0);
+            // Mild expansion: speech spectra are lumpy, and a little contrast
+            // makes the lumps legible.
+            out[b] = v.powf(0.85);
         }
         out
     }
