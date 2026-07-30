@@ -92,33 +92,40 @@ pub fn fetch_with<F: FnMut(u64, u64)>(
 }
 
 /// Tauri-facing wrapper: same transfer, progress emitted to the settings window.
-pub fn fetch(app: &AppHandle, file: &str, url: &str) {
+///
+/// `id` is what the UI keys its row on; `saved_as` is the file on disk, which
+/// differs when the download is an archive that gets unpacked. `finish` runs
+/// after a successful transfer and is where extraction happens — a failure
+/// there is reported as a failed download, because a half-unpacked model is no
+/// more usable than a half-downloaded one.
+pub fn fetch_named<F>(app: &AppHandle, id: &str, saved_as: &str, url: &str, finish: F)
+where
+    F: FnOnce(&std::path::Path) -> anyhow::Result<()>,
+{
     let emit = |p: Progress| {
         if let Err(e) = app.emit(EVENT, p) {
             crate::log!("download progress emit failed: {e}");
         }
     };
 
-    let outcome = fetch_with(file, url, |received, total| {
-        emit(Progress {
-            file: file.into(),
-            received,
-            total,
-            done: false,
-            error: None,
-        });
+    let outcome = fetch_with(saved_as, url, |received, total| {
+        emit(Progress { file: id.into(), received, total, done: false, error: None });
+    })
+    .and_then(|path| {
+        // Unpacking a few hundred megabytes is not instant; say so rather than
+        // leaving the bar sitting full.
+        emit(Progress { file: id.into(), received: 0, total: 0, done: false, error: None });
+        finish(&path).map_err(|e| e.to_string()).map(|()| path)
     });
 
     match outcome {
         Ok(path) => {
-            crate::log!("downloaded {file} -> {}", path.display());
-            emit(Progress { file: file.into(), received: 0, total: 0, done: true, error: None });
+            crate::log!("installed {id} -> {}", path.display());
+            emit(Progress { file: id.into(), received: 0, total: 0, done: true, error: None });
         }
         Err(e) => {
-            crate::log!("download failed for {file}: {e}");
-            emit(Progress {
-                file: file.into(), received: 0, total: 0, done: true, error: Some(e),
-            });
+            crate::log!("download failed for {id}: {e}");
+            emit(Progress { file: id.into(), received: 0, total: 0, done: true, error: Some(e) });
         }
     }
 }

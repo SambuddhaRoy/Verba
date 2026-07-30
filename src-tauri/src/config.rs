@@ -59,7 +59,7 @@ pub fn engines() -> Vec<EngineInfo> {
         ("faster-whisper", "faster-whisper",
          "CTranslate2, run as a Python sidecar Verba installs for you. GPU path is CUDA-only — on AMD or Intel graphics it runs on CPU."),
         ("parakeet", "Parakeet / sherpa-onnx",
-         "NVIDIA Parakeet and Moonshine, which stream natively. Needs a sherpa-onnx backend that is not built into this version."),
+         "NVIDIA Parakeet and Moonshine, run through prebuilt sherpa-onnx wheels Verba installs for you. Far faster than Whisper; offline rather than streaming."),
     ]
     .into_iter()
     .map(|(id, name, note)| EngineInfo {
@@ -132,10 +132,17 @@ pub fn path() -> PathBuf {
 /// refusing to start over a bad settings file is worse than ignoring it.
 pub fn load() -> Config {
     match std::fs::read_to_string(path()) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
-            crate::log!("config unreadable, using defaults: {e}");
-            Config::default()
-        }),
+        Ok(s) => {
+            // Strip a UTF-8 BOM. serde_json rejects one outright, and plenty of
+            // Windows editors — Notepad, PowerShell's Set-Content — add it
+            // silently. Without this the file parses as garbage and every
+            // setting reverts to default with only a line in the log.
+            let s = s.strip_prefix('\u{feff}').unwrap_or(&s);
+            serde_json::from_str(s).unwrap_or_else(|e| {
+                crate::log!("config unreadable, using defaults: {e}");
+                Config::default()
+            })
+        }
         Err(_) => Config::default(),
     }
 }
@@ -222,24 +229,55 @@ const CATALOGUE: &[Entry] = &[
     ("distil-large-v3", "FW Distil-Large v3", "faster-whisper", 1510, 3000, false, "MIT",
      "Distilled: close to Large v3 accuracy at roughly half the size. English."),
 
-    // --- NVIDIA Parakeet, ONNX via sherpa-onnx ----------------------------
-    // Not GGML, so whisper.cpp cannot load these at all. Listed because
-    // Parakeet is the streaming path and worth knowing about.
-    ("sherpa-parakeet-tdt-0.6b-v3", "NVIDIA Parakeet TDT 0.6B v3", "parakeet", 640, 2400, true, "CC-BY-4.0",
-     "Token-and-duration transducer. Streams natively and is far faster than realtime. 25 European languages."),
-    ("sherpa-parakeet-tdt-0.6b-v2", "NVIDIA Parakeet TDT 0.6B v2", "parakeet", 620, 2400, true, "CC-BY-4.0",
-     "English only. Tops several accuracy leaderboards while staying streaming-capable."),
-    ("sherpa-parakeet-tdt_ctc-110m", "NVIDIA Parakeet TDT-CTC 110M", "parakeet", 120, 700, true, "CC-BY-4.0",
-     "Small enough for a thin laptop and still streaming. English."),
-    ("sherpa-nemo-canary-180m-flash", "NVIDIA Canary 180M Flash", "parakeet", 190, 900, false, "CC-BY-4.0",
-     "Transcribes and translates across four languages. Batch, not streaming."),
-
-    // --- Moonshine, ONNX --------------------------------------------------
-    ("sherpa-moonshine-base", "Moonshine Base", "parakeet", 160, 700, true, "MIT",
-     "Built for short utterances; cost scales with audio length rather than a fixed window."),
-    ("sherpa-moonshine-tiny", "Moonshine Tiny", "parakeet", 60, 400, true, "MIT",
-     "Very fast on CPU. English, short-form."),
+    // --- sherpa-onnx: Parakeet and Moonshine ------------------------------
+    // Names are the release archive stems, which are also the directory names
+    // after extraction. These are ONNX, so whisper.cpp cannot load them.
+    // All offline: sherpa-onnx does publish genuinely streaming Parakeet
+    // builds, but those use a different recogniser that is not wired up.
+    ("sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8",
+     "Parakeet TDT 110M", "parakeet", 103, 700, false, "CC-BY-4.0",
+     "Roughly 90x realtime on CPU alone — far faster than any Whisper build. English."),
+    ("sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
+     "Parakeet TDT 0.6B v2", "parakeet", 460, 1800, false, "CC-BY-4.0",
+     "Tops several English accuracy leaderboards and still runs many times faster than realtime."),
+    ("sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
+     "Parakeet TDT 0.6B v3", "parakeet", 465, 1800, false, "CC-BY-4.0",
+     "As v2, extended to 25 European languages."),
+    ("sherpa-onnx-moonshine-tiny-en-int8",
+     "Moonshine Tiny", "parakeet", 103, 500, false, "MIT",
+     "Built for short utterances: cost scales with audio length, not a fixed window. English."),
+    ("sherpa-onnx-moonshine-base-en-int8",
+     "Moonshine Base", "parakeet", 239, 900, false, "MIT",
+     "More accurate Moonshine, still very quick on CPU. English."),
 ];
+
+/// sherpa-onnx publishes its models as release archives on one tag.
+const SHERPA_RELEASE: &str =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A BOM on the config used to reset every setting to default with nothing
+    /// but a log line, which is indistinguishable from the app ignoring you.
+    #[test]
+    fn config_parses_with_and_without_bom() {
+        let json = r#"{"engine":"parakeet","model":"x"}"#;
+        let plain: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(plain.engine, "parakeet");
+
+        let with_bom = format!("\u{feff}{json}");
+        assert!(
+            serde_json::from_str::<Config>(&with_bom).is_err(),
+            "if serde starts accepting a BOM the strip below is dead code"
+        );
+        let stripped = with_bom.strip_prefix('\u{feff}').unwrap();
+        let parsed: Config = serde_json::from_str(stripped).unwrap();
+        assert_eq!(parsed.engine, "parakeet");
+        assert_eq!(parsed.model, "x");
+    }
+}
 
 /// Engines this build can actually run right now.
 pub fn available_engines() -> Vec<&'static str> {
@@ -250,12 +288,15 @@ pub fn available_engines() -> Vec<&'static str> {
     if crate::fasterwhisper::is_installed() {
         v.push("faster-whisper");
     }
+    if crate::parakeet::is_installed() {
+        v.push("parakeet");
+    }
     v
 }
 
 /// Engines that can be installed from within the app.
 pub fn installable_engines() -> Vec<&'static str> {
-    vec!["faster-whisper"]
+    vec!["faster-whisper", "parakeet"]
 }
 
 pub fn catalogue() -> Vec<ModelInfo> {
@@ -271,16 +312,20 @@ pub fn catalogue() -> Vec<ModelInfo> {
             note,
             license,
             streaming: *streaming,
-            url: if *engine == "whisper.cpp" {
-                format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{file}")
-            } else {
-                // sherpa-onnx publishes these as release archives, not single files.
-                "https://github.com/k2-fsa/sherpa-onnx/releases".into()
+            url: match *engine {
+                "whisper.cpp" => {
+                    format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{file}")
+                }
+                "parakeet" => format!("{SHERPA_RELEASE}/{file}.tar.bz2"),
+                // faster-whisper fetches its own weights from Hugging Face.
+                _ => String::new(),
             },
-            // GGML models are single files we manage. faster-whisper fetches
-            // its own weights, so "installed" there means the engine is ready.
             installed: match *engine {
                 "whisper.cpp" => dir.join(file).exists(),
+                // A directory of ONNX files; tokens.txt is the one member every
+                // sherpa-onnx layout has.
+                "parakeet" => dir.join(file).join("tokens.txt").is_file(),
+                // Nothing to install per-model: it downloads on first use.
                 "faster-whisper" => crate::fasterwhisper::is_installed(),
                 _ => false,
             },
