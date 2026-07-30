@@ -14,7 +14,7 @@ serde_json = "1"
 tauri = { version = "2.11.5", features = ["tray-icon"] }
 ureq = "3.3.0"
 whisper-rs = "0.16.0"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_System_Console", "Win32_Graphics_Dxgi", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Graphics_Gdi"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_System_Console", "Win32_Graphics_Dxgi", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Graphics_Gdi", "UI_ViewManagement"] }
 
 [build-dependencies]
 tauri-build = "2.6.3"

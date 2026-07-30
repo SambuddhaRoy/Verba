@@ -1,27 +1,37 @@
-/* Verba settings — same material as the overlay.
+/* Verba settings — monochrome, with the user's Windows accent as the only hue.
  *
- * Rules carried from the design's component sheet:
+ * Every colour here is grey except --accent and its variants, which are read
+ * from UISettings at runtime and written onto :root by settings.js. Nothing
+ * should hardcode a hue; if a rule needs colour, it needs the accent.
+ *
+ * Material rules carried from the design's component sheet:
  *   - No borders. Inset specular edges and ambient cast shadow only.
  *   - Concentric radii: inner r = outer r - padding.
- *   - Accents are rim gradients, bloom shadows and status dots. Never fills.
+ *   - Accent appears as rim, glow and state dot. Never as a large fill.
  *
- * The window itself is Mica, so the page stays transparent and every surface
- * here is a translucent lens over the wallpaper.
+ * The window itself is Acrylic, so the page stays thin and every surface is a
+ * translucent lens over the wallpaper.
  */
 
 :root {
-  --pink:   oklch(80% .14 350);
-  --violet: oklch(72% .13 300);
-  --indigo: oklch(62% .13 275);
-  --orange: oklch(82% .13 60);
+  /* Overwritten from the Windows accent on load. These are only what shows
+     for the fraction of a second before that lands. */
+  --accent: #0078D4;
+  --accent-light: #4CA0E8;
+  --accent-dim: #005FAA;
+  --accent-rgb: 0, 120, 212;
 
-  --sans: Manrope, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --sans: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
 
   --fill:  rgba(255, 255, 255, .035);
   --spec:  inset 0 1px 0 rgba(255, 255, 255, .12);
-  --spec2: inset 0 1px 0 rgba(255, 255, 255, .30);
+  --spec2: inset 0 1px 0 rgba(255, 255, 255, .28);
   --hair:  inset 0 0 0 1px rgba(255, 255, 255, .06);
+
+  --text:   rgba(255, 255, 255, .92);
+  --text-2: rgba(255, 255, 255, .58);
+  --text-3: rgba(255, 255, 255, .40);
 }
 
 * { box-sizing: border-box; }
@@ -29,11 +39,10 @@
 html, body {
   margin: 0;
   height: 100%;
-  /* Thin: the window itself is Acrylic, which is the effect that actually
-     blurs what is behind it — Mica only tints from the wallpaper. Anything
-     much more opaque here throws that away. */
-  background: rgba(10, 12, 20, .34);
-  color: #fff;
+  /* Thin: the window is Acrylic, which is the effect that actually blurs what
+     is behind it. Anything much more opaque throws that away. */
+  background: rgba(12, 12, 14, .34);
+  color: var(--text);
   font-family: var(--sans);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
@@ -54,6 +63,8 @@ header {
   box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .05);
 }
 
+/* The app mark is the one place the product's own colours survive, because it
+   is the logo rather than UI chrome. */
 .mark {
   width: 14px; height: 14px;
   border-radius: 50%;
@@ -64,17 +75,17 @@ header {
           mask: radial-gradient(circle, transparent 44%, #000 50%);
 }
 
-.title { font: 500 12px var(--sans); color: rgba(255, 255, 255, .72); }
+.title { font: 500 12px var(--sans); color: var(--text-2); }
 .winbtns { margin-left: auto; display: flex; }
 .winbtns button {
   width: 46px; height: 44px;
   border: 0; background: none;
-  color: rgba(255, 255, 255, .6);
+  color: var(--text-2);
   font: 300 12px system-ui;
   cursor: pointer;
 }
 .winbtns button:hover { background: rgba(255, 255, 255, .07); }
-#close:hover { background: rgba(232, 60, 70, .75); color: #fff; }
+#close:hover { background: #C42B1C; color: #fff; }
 
 /* ------------------------------------------------------------------ shell */
 
@@ -90,48 +101,56 @@ nav {
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, .04);
 }
 
+/* Selected nav uses a left accent bar rather than a tinted fill — Windows'
+   own navigation does the same, and it keeps the accent to a thin mark. */
 .nav {
+  position: relative;
   height: 38px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 6px;
   background: none;
   display: flex;
   align-items: center;
   gap: 11px;
   padding: 0 13px;
-  font: 500 12.5px var(--sans);
-  color: rgba(255, 255, 255, .55);
+  font: 400 13px var(--sans);
+  color: var(--text-2);
   cursor: pointer;
   text-align: left;
 }
-.nav i {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, .18);
-  flex: none;
+.nav::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 50%;
+  width: 3px; height: 0;
+  border-radius: 2px;
+  background: var(--accent-light);
+  transform: translateY(-50%);
+  transition: height .18s cubic-bezier(.22, 1, .36, 1);
 }
-.nav:hover { color: rgba(255, 255, 255, .82); background: rgba(255, 255, 255, .04); }
+.nav i { display: none; }
+.nav:hover { color: var(--text); background: rgba(255, 255, 255, .05); }
 .nav.on {
-  background: linear-gradient(160deg, rgba(255,255,255,.13), rgba(255,255,255,.05));
-  box-shadow: var(--spec2), var(--hair), 0 0 26px -10px oklch(80% .14 350 / .5);
+  background: rgba(255, 255, 255, .07);
+  box-shadow: var(--spec);
   color: #fff;
   font-weight: 600;
 }
-.nav.on i { background: var(--pink); box-shadow: 0 0 9px 1px oklch(80% .14 350 / .9); }
+.nav.on::before { height: 17px; }
 
 .rig {
   margin-top: auto;
   padding: 12px 13px;
-  border-radius: 14px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, .03);
 }
 .rig .mono {
-  font-size: 9.5px;
-  letter-spacing: .06em;
-  color: rgba(255, 255, 255, .38);
+  font-size: 10px;
+  letter-spacing: .02em;
+  color: var(--text-3);
   line-height: 1.6;
 }
-.rig p { margin: 6px 0 0; font: 400 11px/1.45 var(--sans); color: rgba(255,255,255,.45); }
+.rig p { margin: 6px 0 0; font: 400 11px/1.45 var(--sans); color: var(--text-3); }
 
 section { flex: 1; padding: 22px 26px; overflow-y: auto; }
 section::-webkit-scrollbar { width: 10px; }
@@ -143,123 +162,125 @@ section::-webkit-scrollbar-thumb {
 }
 
 .panel { display: none; }
-.panel.on { display: block; animation: rise .32s cubic-bezier(.22,1,.36,1); }
+.panel.on { display: block; animation: rise .28s cubic-bezier(.22, 1, .36, 1); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 
-h1 { margin: 0; font: 600 17px var(--sans); letter-spacing: -.02em; }
-.sub { margin: 5px 0 18px; font: 400 12.5px/1.5 var(--sans); color: rgba(255,255,255,.45); }
-.hint { margin: -4px 0 16px; font: 400 11.5px/1.5 var(--sans); color: rgba(255,255,255,.4); }
+h1 { margin: 0; font: 600 18px var(--sans); letter-spacing: -.01em; }
+.sub { margin: 5px 0 18px; font: 400 12.5px/1.5 var(--sans); color: var(--text-3); }
+.hint { margin: -4px 0 16px; font: 400 11.5px/1.5 var(--sans); color: var(--text-3); }
 
 /* ------------------------------------------------------------------ cards */
 
 .card {
-  border-radius: 18px;
+  border-radius: 8px;
   padding: 16px 18px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   background: var(--fill);
   box-shadow: var(--spec);
 }
 .row { display: flex; align-items: center; gap: 16px; }
-/* The control keeps its natural width; only the label column flexes. Without
-   flex:none the select and keycaps get squeezed before the text does. */
-.row > .keys, .row > select, .row > .tgl, .row > .val { flex: none; }
+/* The control keeps its natural width; only the label column flexes. */
+.row > .keys, .row > select, .row > .tgl, .row > .val, .row > .btn { flex: none; }
 .grow { flex: 1; min-width: 140px; }
-.card b { display: block; font: 600 13px var(--sans); color: rgba(255,255,255,.92); }
+.card b { display: block; font: 600 13px var(--sans); color: var(--text); }
 .card small {
   display: block;
   margin-top: 4px;
   font: 400 11.5px/1.45 var(--sans);
-  color: rgba(255, 255, 255, .42);
+  color: var(--text-3);
 }
-.val { font-size: 10px; color: rgba(255,255,255,.6); letter-spacing: .04em; }
+.val { font-size: 11px; color: var(--text-2); }
 
 .btn {
   height: 30px;
   padding: 0 14px;
   border: 0;
-  border-radius: 15px;
-  background: rgba(255, 255, 255, .06);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16);
-  color: rgba(255, 255, 255, .82);
-  font: 500 11.5px var(--sans);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .07);
+  box-shadow: var(--spec);
+  color: var(--text);
+  font: 400 12px var(--sans);
   cursor: pointer;
 }
-.btn:hover { background: rgba(255, 255, 255, .11); }
+.btn:hover { background: rgba(255, 255, 255, .12); }
 .btn.arm {
-  background: linear-gradient(160deg, rgba(255,255,255,.16), rgba(255,255,255,.06));
-  box-shadow: var(--spec2), 0 0 24px -6px oklch(80% .14 350 / .6);
+  background: var(--accent);
+  box-shadow: none;
   color: #fff;
 }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.tiny { height: 26px; padding: 0 11px; font-size: 11.5px; }
 
 .keys { display: flex; align-items: center; gap: 6px; }
-.keys.arm kbd { box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 0 18px -4px oklch(80% .14 350 / .9); }
+.keys.arm kbd { box-shadow: inset 0 0 0 1px var(--accent-light), 0 2px 6px rgba(0,0,0,.4); }
 kbd {
   min-width: 30px; height: 28px;
   padding: 0 11px;
   display: grid; place-items: center;
-  border-radius: 8px;
-  background: linear-gradient(160deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 2px 6px rgba(0,0,0,.4);
-  font: 600 12px var(--sans);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 2px 6px rgba(0, 0, 0, .4);
+  font: 500 12px var(--sans);
 }
-.keys s { color: rgba(255,255,255,.3); text-decoration: none; font-size: 11px; }
+.keys s { color: var(--text-3); text-decoration: none; font-size: 11px; }
 
 select {
   height: 32px;
   min-width: 190px;
   padding: 0 12px;
   border: 0;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, .06);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.16);
-  color: rgba(255, 255, 255, .85);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .07);
+  box-shadow: var(--spec);
+  color: var(--text);
   font: 400 12px var(--sans);
   cursor: pointer;
 }
-select option { background: #14161f; color: #fff; }
+select:focus-visible { outline: 2px solid var(--accent-light); outline-offset: 1px; }
+select option { background: #1b1b1f; color: #fff; }
 
-/* Toggle: 40x23, r12, knob 19 — straight from the component sheet. */
+/* Toggle: Windows proportions, accent fill when on. */
 .tgl {
-  width: 40px; height: 23px;
+  width: 40px; height: 22px;
   flex: none;
   padding: 2px;
   border: 0;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, .07);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, .5);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .09);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
   cursor: pointer;
-  transition: background .25s ease, box-shadow .25s ease;
+  transition: background .18s ease, box-shadow .18s ease;
 }
 .tgl::after {
   content: '';
   display: block;
-  width: 19px; height: 19px;
+  width: 14px; height: 14px;
+  margin: 2px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, .55);
-  transition: transform .25s cubic-bezier(.22,1,.36,1), background .25s ease;
+  background: var(--text);
+  transition: transform .18s cubic-bezier(.22, 1, .36, 1), background .18s ease;
 }
 .tgl.on {
-  background: linear-gradient(160deg, rgba(255,160,205,.85), rgba(160,135,255,.6));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 0 18px -4px oklch(80% .14 350 / .7);
+  background: var(--accent);
+  box-shadow: none;
 }
-.tgl.on::after { transform: translateX(17px); background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.tgl.on::after { transform: translateX(18px); background: #fff; }
 
 input[type=range] {
   -webkit-appearance: none;
   width: 100%;
   margin-top: 14px;
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, .08);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .5);
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .14);
   cursor: pointer;
 }
 input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 18px; height: 18px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(0,0,0,.55), 0 0 16px -2px oklch(80% .14 350 / .8);
+  background: var(--accent-light);
+  box-shadow: 0 0 0 3px rgba(12, 12, 14, .9), 0 1px 4px rgba(0, 0, 0, .6);
 }
 
 /* --------------------------------------------------------------- segments */
@@ -268,7 +289,7 @@ input[type=range]::-webkit-slider-thumb {
   display: inline-flex;
   gap: 4px;
   padding: 4px;
-  border-radius: 18px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, .04);
   box-shadow: var(--spec);
   margin-bottom: 10px;
@@ -277,19 +298,21 @@ input[type=range]::-webkit-slider-thumb {
   height: 30px;
   padding: 0 16px;
   border: 0;
-  border-radius: 15px;
+  border-radius: 5px;
   background: none;
-  color: rgba(255, 255, 255, .55);
-  font: 500 12px var(--sans);
+  color: var(--text-2);
+  font: 400 12px var(--sans);
   cursor: pointer;
 }
+.seg button:hover { background: rgba(255, 255, 255, .06); color: var(--text); }
 .seg button.on {
-  background: linear-gradient(160deg, rgba(255,255,255,.14), rgba(255,255,255,.05));
-  box-shadow: var(--spec2), inset 0 0 0 1px oklch(72% .13 300 / .28),
-              0 0 26px -8px oklch(72% .13 300 / .55);
+  background: rgba(var(--accent-rgb), .22);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .55);
   color: #fff;
   font-weight: 600;
 }
+.seg button.off { opacity: .45; }
+.seg button.off:hover { opacity: .65; }
 .seg button:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ----------------------------------------------------------- model cards */
@@ -298,9 +321,9 @@ input[type=range]::-webkit-slider-thumb {
   width: 100%;
   text-align: left;
   border: 0;
-  border-radius: 16px;
-  padding: 15px 16px;
-  margin-bottom: 8px;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 6px;
   background: var(--fill);
   box-shadow: var(--spec);
   color: inherit;
@@ -308,111 +331,97 @@ input[type=range]::-webkit-slider-thumb {
   cursor: pointer;
   display: block;
 }
-.model:hover { background: rgba(255, 255, 255, .055); }
+.model:hover { background: rgba(255, 255, 255, .06); }
 .model.on {
-  background: linear-gradient(160deg, rgba(255,255,255,.13), rgba(255,255,255,.05));
-  box-shadow: var(--spec2), inset 0 0 0 1px oklch(72% .13 300 / .3),
-              0 0 32px -10px oklch(72% .13 300 / .5);
+  background: rgba(var(--accent-rgb), .16);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .5);
 }
 .model .top { display: flex; align-items: baseline; gap: 9px; }
 .model .nm { font: 600 13px var(--sans); }
 .model .tag {
-  font: 500 9.5px var(--mono);
-  letter-spacing: .06em;
-  color: rgba(255, 255, 255, .34);
+  font: 400 10px var(--mono);
+  letter-spacing: .04em;
+  color: var(--text-3);
 }
-.model.on .tag { color: oklch(76% .12 300); }
-.model .rec {
-  font: 500 9.5px var(--mono);
-  letter-spacing: .06em;
-  color: oklch(82% .13 60);
+.model.on .tag { color: var(--accent-light); }
+.model .rec, .model .stream {
+  font: 400 10px var(--mono);
+  letter-spacing: .04em;
+  color: var(--accent-light);
 }
-.model .stream {
-  font: 500 9.5px var(--mono);
-  letter-spacing: .06em;
-  color: oklch(80% .13 190);
-}
-.model[hidden] { display: none; }
-
-/* Engines that exist but aren't built. Dimmed rather than hidden, so the
-   roadmap is legible; clicking still explains why. */
-.seg button.off { opacity: .42; }
-.seg button.off:hover { opacity: .62; }
-.model .bar { margin-top: 9px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.08); }
-.model .bar > div { height: 3px; border-radius: 2px; background: rgba(255,255,255,.4); }
-.model.on .bar > div { background: oklch(74% .13 300); box-shadow: 0 0 8px oklch(72% .13 300 / .8); }
-.model .note { margin-top: 8px; font: 400 11.5px/1.45 var(--sans); color: rgba(255,255,255,.45); }
-.model .miss { color: rgba(255, 190, 120, .75); }
+.model .stream { color: var(--text-2); }
+.model .bar { margin-top: 9px; height: 2px; border-radius: 1px; background: rgba(255,255,255,.1); }
+.model .bar > div { height: 2px; border-radius: 1px; background: rgba(255,255,255,.35); }
+.model.on .bar > div { background: var(--accent-light); }
+.model .note { margin-top: 8px; font: 400 11.5px/1.45 var(--sans); color: var(--text-3); }
+.model .miss { color: var(--text-3); }
 .model .act { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .model .why {
-  font: 500 9.5px var(--mono);
-  letter-spacing: .06em;
-  color: rgba(255, 190, 120, .8);
+  font: 400 10px var(--mono);
+  letter-spacing: .04em;
+  color: var(--accent-light);
   cursor: help;
   text-decoration: underline dotted;
 }
-.btn.tiny { height: 26px; padding: 0 12px; font-size: 11px; border-radius: 13px; }
-.btn:disabled { opacity: .55; cursor: default; }
+.model[hidden] { display: none; }
 
-/* Download progress. Collapsed to nothing until a transfer starts, so an
-   installed model shows no empty track. */
 .model .dl {
   position: relative;
   height: 0;
   margin-top: 0;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, .08);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .1);
   overflow: hidden;
   transition: height .3s ease, margin-top .3s ease;
 }
-.model.downloading .dl { height: 6px; margin-top: 10px; }
+.model.downloading .dl { height: 4px; margin-top: 10px; }
 .model .dl-fill {
   width: 0;
   height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, oklch(80% .13 350), oklch(70% .13 300));
-  box-shadow: 0 0 12px -1px oklch(74% .13 320 / .8);
+  border-radius: 2px;
+  background: var(--accent-light);
   transition: width .25s ease;
 }
 .model .dl-txt {
   position: absolute;
   right: 0; top: -16px;
-  font: 500 9.5px var(--mono);
-  color: rgba(255, 255, 255, .5);
+  font: 400 10px var(--mono);
+  color: var(--text-3);
 }
 
 /* ------------------------------------------------------------- appearance */
 
-.visuals { display: flex; gap: 12px; }
+.visuals { display: flex; gap: 10px; }
 .vis {
   flex: 1;
   border: 0;
-  border-radius: 20px;
-  padding: 14px;
+  border-radius: 8px;
+  padding: 12px;
   background: var(--fill);
   box-shadow: var(--spec);
   color: inherit;
   cursor: pointer;
   text-align: left;
 }
+.vis:hover { background: rgba(255, 255, 255, .06); }
 .vis.on {
-  background: linear-gradient(160deg, rgba(255,255,255,.13), rgba(255,255,255,.05));
-  box-shadow: var(--spec2), inset 0 0 0 1px oklch(72% .13 300 / .3),
-              0 0 32px -10px oklch(72% .13 300 / .5);
+  background: rgba(var(--accent-rgb), .16);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .5);
 }
 .vis b { display: block; margin-top: 12px; font: 600 13px var(--sans); }
-.vis small { display: block; margin-top: 5px; font: 400 11.5px/1.45 var(--sans); color: rgba(255,255,255,.45); }
+.vis small { display: block; margin-top: 5px; font: 400 11.5px/1.45 var(--sans); color: var(--text-3); }
 
+/* Previews stay in the overlay's own colours: they are pictures of another
+   surface, not chrome, and recolouring them would misrepresent it. */
 .vis-art {
   height: 78px;
-  border-radius: 14px;
+  border-radius: 6px;
   background: #08080c;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
   display: grid;
   place-items: center;
   overflow: hidden;
 }
-/* Miniature of each treatment. Static, but unmistakably the right one. */
 .art-ribbons {
   background:
     radial-gradient(60% 34% at 50% 50%, rgba(255,255,255,.95), transparent 70%),
@@ -424,7 +433,7 @@ input[type=range]::-webkit-slider-thumb {
 .art-glow { position: relative; }
 .art-glow span {
   width: 62%; height: 40%;
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(8, 11, 20, .8);
   box-shadow: 0 0 34px 8px rgba(43, 123, 255, .55), inset 0 1px 0 rgba(255,255,255,.14);
 }
@@ -436,12 +445,12 @@ input[type=range]::-webkit-slider-thumb {
   left: 50%; bottom: 20px;
   transform: translate(-50%, 20px);
   padding: 9px 16px;
-  border-radius: 17px;
-  background: rgba(255, 255, 255, .1);
-  box-shadow: var(--spec2), var(--hair), 0 12px 30px -10px rgba(0,0,0,.8);
-  font: 500 11.5px var(--sans);
+  border-radius: 6px;
+  background: rgba(38, 38, 42, .96);
+  box-shadow: var(--spec), var(--hair), 0 12px 30px -10px rgba(0,0,0,.8);
+  font: 400 12px var(--sans);
   opacity: 0;
   pointer-events: none;
-  transition: opacity .25s ease, transform .25s ease;
+  transition: opacity .2s ease, transform .2s ease;
 }
 #toast.on { opacity: 1; transform: translate(-50%, 0); }

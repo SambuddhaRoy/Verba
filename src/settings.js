@@ -223,6 +223,18 @@ async function boot() {
   const s = await invoke('get_state');
   cfg = s.config;
 
+  // Windows accent, applied before anything paints with it. Everything else in
+  // this window is grey, so these four values are the entire palette.
+  if (s.accent) {
+    const r = document.documentElement.style;
+    r.setProperty('--accent', s.accent.base);
+    // The base accent can be dark enough to be unreadable on a dark surface;
+    // Windows uses the light variants for exactly that reason.
+    r.setProperty('--accent-light', s.accent.light2);
+    r.setProperty('--accent-dim', s.accent.dark1);
+    r.setProperty('--accent-rgb', s.accent.rgb);
+  }
+
   // Hardware summary in the sidebar.
   const hw = s.hardware;
   const vram = hw.vram_mb >= 1024 ? `${(hw.vram_mb / 1024).toFixed(0)} GB` : `${hw.vram_mb} MB`;
