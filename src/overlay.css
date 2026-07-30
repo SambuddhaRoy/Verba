@@ -174,6 +174,100 @@ html, body {
   55%, 100% { opacity: .15; }
 }
 
+/* ---------------------------------------------------------------- minimal */
+
+/* Flat, not glass. The whole point of this treatment is that it has no
+   material: one card, one weight of line, one accent. */
+#min-card {
+  position: relative;
+  margin-top: 40px;
+  width: 300px;
+  opacity: 0;
+  border-radius: 22px;
+  padding: 18px 22px 20px;
+  background: rgba(26, 26, 28, .94);
+  box-shadow: 0 24px 60px -22px rgba(0, 0, 0, .9),
+              inset 0 0 0 1px rgba(255, 255, 255, .05);
+  transition: width .7s cubic-bezier(.2, 1.04, .28, 1), opacity .4s ease;
+}
+
+#min-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font: 400 10.5px var(--mono);
+  letter-spacing: .14em;
+  color: rgba(255, 255, 255, .42);
+  margin-bottom: 16px;
+}
+
+#min-wave {
+  position: relative;
+  height: 84px;
+  /* The slot count is fixed, so the bar row is wider than the card while it is
+     collapsed. Clipping turns that into a wipe rather than an overflow. */
+  overflow: hidden;
+}
+
+/* Bars are mirrored about the centre line, which is what makes this read as a
+   recording rather than a bar chart. */
+#min-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+#min-bars i {
+  flex: none;
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: #fff;
+  transform: scaleY(0);
+  transform-origin: center;
+}
+
+/* The run not yet recorded. A repeating gradient rather than elements: it is
+   decoration, and sixty more nodes to animate would not be. */
+#min-dots {
+  position: absolute;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background-image: linear-gradient(90deg, rgba(255,255,255,.3) 0 2px, transparent 2px 100%);
+  background-size: 9px 2px;
+  pointer-events: none;
+}
+
+#min-cursor {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: #E8382F;
+  pointer-events: none;
+}
+
+#min-line {
+  font: 400 13.5px/1.6 var(--sans);
+  color: rgba(255, 255, 255, .9);
+  letter-spacing: -.003em;
+  text-wrap: pretty;
+  height: 0;
+  margin-top: 0;
+  overflow: hidden;
+  transition: height .6s cubic-bezier(.22, 1, .36, 1),
+              margin-top .6s cubic-bezier(.22, 1, .36, 1);
+}
+#min-line.open { height: 76px; margin-top: 18px; }
+#min-line .caret {
+  background: #E8382F;
+  box-shadow: none;
+  height: 14px;
+}
+
 /* ------------------------------------------------------------------- glow */
 
 #glow-shell {
