@@ -438,6 +438,27 @@ input[type=range]::-webkit-slider-thumb {
   box-shadow: 0 0 34px 8px rgba(43, 123, 255, .55), inset 0 1px 0 rgba(255,255,255,.14);
 }
 
+/* Bars as a repeating gradient rather than elements — a static thumbnail does
+   not need sixty nodes. */
+.art-minimal { position: relative; background: #1a1a1c; }
+.art-minimal i {
+  position: absolute;
+  left: 14%; top: 50%;
+  width: 52%; height: 34%;
+  transform: translateY(-50%);
+  background-image: linear-gradient(90deg, #fff 0 2px, transparent 2px 100%);
+  background-size: 5px 100%;
+  -webkit-mask: radial-gradient(120% 100% at 30% 50%, #000 30%, rgba(0,0,0,.35) 100%);
+          mask: radial-gradient(120% 100% at 30% 50%, #000 30%, rgba(0,0,0,.35) 100%);
+}
+.art-minimal .cur {
+  position: absolute;
+  left: 66%; top: 50%;
+  width: 2px; height: 42%;
+  transform: translateY(-50%);
+  background: #E8382F;
+}
+
 /* ------------------------------------------------------------------ toast */
 
 #toast {

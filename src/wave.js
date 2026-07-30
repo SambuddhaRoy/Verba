@@ -46,9 +46,21 @@ const GLOW_STOPS = [
   [ 96, 150, 255], [106,  92, 255], [ 43, 123, 255],
 ];
 
+/* Minimal treatment: a scrolling record of loudness over time rather than a
+ * spectrum. One bar per slice, mirrored about the centre line, with a playhead
+ * where the next slice lands. */
+const MIN_SLOTS = 85;
+const MIN_PITCH = 5;      // 2px bar + 3px gap, matching the CSS
+/** One bar per this many ms — 85 slots is then about 7.6s before it scrolls. */
+const MIN_PUSH_MS = 90;
+
 const $ = id => document.getElementById(id);
 const el = {
   stageRibbons: $('stage-ribbons'), stageGlow: $('stage-glow'),
+  stageMinimal: $('stage-minimal'),
+  minCard: $('min-card'), minBars: $('min-bars'), minDots: $('min-dots'),
+  minCursor: $('min-cursor'), minTitle: $('min-title'), minTime: $('min-time'),
+  minLine: $('min-line'),
   glass: $('glass'), field: $('field'), behind: $('behind'),
   wave: $('wave'), blend: $('blend'), body: $('body'),
   status: $('status'), timer: $('timer'), line: $('line'), engine: $('engine'),
@@ -59,6 +71,23 @@ const paths = [...document.querySelectorAll('#ribbons path')];
 const halos = [...document.querySelectorAll('#aura .halo')];
 const gnTurb = $('gn-turb');
 const gnDisp = $('gn-disp');
+
+// Bars are built once; only their scaleY changes per frame.
+const minBars = [];
+for (let i = 0; i < MIN_SLOTS; i++) {
+  const b = document.createElement('i');
+  el.minBars.appendChild(b);
+  minBars.push(b);
+}
+const minHistory = new Float32Array(MIN_SLOTS);
+let minHead = 0;
+let minLastPush = 0;
+
+function minReset() {
+  minHistory.fill(0);
+  minHead = 0;
+  minLastPush = 0;
+}
 
 let phase = 'idle';
 let visual = 'ribbons';
@@ -167,16 +196,22 @@ const GLASS_SHADOW =
   '0 42px 96px -26px rgba(0,0,0,.9),0 0 64px -18px rgba(160,130,255,.18),' +
   'inset 0 1px 0 rgba(255,255,255,.32),inset 0 0 0 1px rgba(255,255,255,.06)';
 
+const VISUALS = ['ribbons', 'glow', 'minimal'];
+
 function setVisual(name) {
-  visual = name === 'glow' ? 'glow' : 'ribbons';
+  visual = VISUALS.includes(name) ? name : 'ribbons';
   el.stageRibbons.hidden = visual !== 'ribbons';
   el.stageGlow.hidden = visual !== 'glow';
+  el.stageMinimal.hidden = visual !== 'minimal';
   applyLayout();
 }
 
 function setPhase(next) {
+  const was = phase;
   phase = next;
   if (next === 'idle') hasText = false;
+  // A new dictation starts a new recording, so the history restarts with it.
+  if (next === 'listening' && was !== 'listening') minReset();
   applyLayout();
 }
 
@@ -232,15 +267,25 @@ function applyLayout() {
   el.shell.style.opacity = idle ? '0' : '1';
   el.aura.style.opacity = idle ? '0' : '1';
   el.gLine.classList.toggle('open', expanded);
+
+  // minimal — one width, since the waveform is a fixed number of slots and
+  // resizing it mid-recording would rescale the history.
+  el.minCard.style.width = idle ? '300px' : '470px';
+  el.minCard.style.opacity = idle ? '0' : '1';
+  el.minLine.classList.toggle('open', expanded);
 }
 
 /* Render a transcript. `partial` marks it as an interim pass that a later one
  * will replace, so the tail is tapered the way the design's confirmation
  * cascade does — the most recent words are the least settled. */
 function setText(text, partial) {
-  const host = visual === 'glow' ? el.gLine : el.line;
-  const other = visual === 'glow' ? el.line : el.gLine;
-  other.textContent = '';
+  const hosts = { ribbons: el.line, glow: el.gLine, minimal: el.minLine };
+  const host = hosts[visual];
+  // Clear the inactive ones, or switching treatment mid-session leaves a stale
+  // transcript behind in the hidden stage.
+  for (const [k, node] of Object.entries(hosts)) {
+    if (k !== visual) node.textContent = '';
+  }
   host.textContent = '';
 
   words = (text || '').split(/(\s+)/).filter(Boolean).map(w => {
@@ -288,7 +333,40 @@ function tick(now) {
     spec[i] += (tgt - spec[i]) * Math.min(1, k);
   }
 
-  if (visual === 'ribbons') {
+  if (visual === 'minimal') {
+    // Append a slice on a fixed clock rather than per frame, so the waveform
+    // scrolls at a rate that does not depend on the display's refresh.
+    if (phase === 'listening' && now - minLastPush >= MIN_PUSH_MS) {
+      minLastPush = now;
+      let peak = 0, sum = 0;
+      for (let i = 0; i < spec.length; i++) {
+        sum += spec[i];
+        if (spec[i] > peak) peak = spec[i];
+      }
+      // Peak-weighted: the mean alone flattens syllables into a steady band,
+      // and a recorder waveform lives on its transients.
+      const v = Math.min(1, peak * 0.75 + (sum / spec.length) * 0.9);
+      if (minHead < MIN_SLOTS) {
+        minHistory[minHead++] = v;
+      } else {
+        minHistory.copyWithin(0, 1);
+        minHistory[MIN_SLOTS - 1] = v;
+      }
+    }
+
+    for (let i = 0; i < MIN_SLOTS; i++) {
+      // Past slices keep their recorded height; the rest are not drawn at all.
+      minBars[i].style.transform =
+        i < minHead ? `scaleY(${(0.035 + 0.965 * minHistory[i]).toFixed(3)})` : 'scaleY(0)';
+    }
+    const x = minHead * MIN_PITCH;
+    el.minCursor.style.left = `${x}px`;
+    el.minCursor.style.opacity = phase === 'listening' ? '1' : '0';
+    el.minDots.style.left = `${x + 7}px`;
+    el.minDots.style.right = '0px';
+    el.minTitle.textContent = phase === 'listening' ? 'NEW RECORDING' : 'TRANSCRIBING';
+
+  } else if (visual === 'ribbons') {
     for (let i = 0; i < RIBBONS.length; i++) {
       paths[i].setAttribute('d', ribbonPath(RIBBONS[i], t));
     }
@@ -363,6 +441,7 @@ if (!api?.listen) {
       const txt = `0:${String(s).padStart(2, '0')}`;
       el.timer.textContent = txt;
       el.gTimer.textContent = txt;
+      el.minTime.textContent = `00:${String(s).padStart(2, '0')}`;
     }
     if (payload.status) {
       el.status.textContent = payload.status;

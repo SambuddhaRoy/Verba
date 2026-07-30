@@ -91,6 +91,24 @@
   </div>
 </div>
 
+<div id="stage-minimal" class="stage" hidden>
+  <div id="min-card">
+    <div id="min-head">
+      <span id="min-title">NEW RECORDING</span>
+      <span id="min-time">00:00</span>
+    </div>
+    <!-- Time-domain history, not a spectrum: each bar is one slice of the
+         past, the playhead is where the next one lands, and the dots are the
+         run that has not happened yet. -->
+    <div id="min-wave">
+      <div id="min-bars"></div>
+      <div id="min-dots"></div>
+      <div id="min-cursor"></div>
+    </div>
+    <div id="min-line"></div>
+  </div>
+</div>
+
 <script src="wave.js"></script>
 </body>
 </html>
