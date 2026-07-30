@@ -29,7 +29,10 @@
 html, body {
   margin: 0;
   height: 100%;
-  background: rgba(10, 11, 16, .55);
+  /* Thin: the window itself is Acrylic, which is the effect that actually
+     blurs what is behind it — Mica only tints from the wallpaper. Anything
+     much more opaque here throws that away. */
+  background: rgba(10, 12, 20, .34);
   color: #fff;
   font-family: var(--sans);
   font-variant-numeric: tabular-nums;
@@ -170,7 +173,26 @@ h1 { margin: 0; font: 600 17px var(--sans); letter-spacing: -.02em; }
 }
 .val { font-size: 10px; color: rgba(255,255,255,.6); letter-spacing: .04em; }
 
+.btn {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, .06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16);
+  color: rgba(255, 255, 255, .82);
+  font: 500 11.5px var(--sans);
+  cursor: pointer;
+}
+.btn:hover { background: rgba(255, 255, 255, .11); }
+.btn.arm {
+  background: linear-gradient(160deg, rgba(255,255,255,.16), rgba(255,255,255,.06));
+  box-shadow: var(--spec2), 0 0 24px -6px oklch(80% .14 350 / .6);
+  color: #fff;
+}
+
 .keys { display: flex; align-items: center; gap: 6px; }
+.keys.arm kbd { box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 0 18px -4px oklch(80% .14 350 / .9); }
 kbd {
   min-width: 30px; height: 28px;
   padding: 0 11px;
@@ -305,6 +327,17 @@ input[type=range]::-webkit-slider-thumb {
   letter-spacing: .06em;
   color: oklch(82% .13 60);
 }
+.model .stream {
+  font: 500 9.5px var(--mono);
+  letter-spacing: .06em;
+  color: oklch(80% .13 190);
+}
+.model[hidden] { display: none; }
+
+/* Engines that exist but aren't built. Dimmed rather than hidden, so the
+   roadmap is legible; clicking still explains why. */
+.seg button.off { opacity: .42; }
+.seg button.off:hover { opacity: .62; }
 .model .bar { margin-top: 9px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.08); }
 .model .bar > div { height: 3px; border-radius: 2px; background: rgba(255,255,255,.4); }
 .model.on .bar > div { background: oklch(74% .13 300); box-shadow: 0 0 8px oklch(72% .13 300 / .8); }

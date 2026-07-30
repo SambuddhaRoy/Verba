@@ -32,9 +32,18 @@ const NBANDS = 7;
  * outer haze, so the glow moves rather than merely pulsing as one.
  * Speeds are mutually prime-ish so the layers never resynchronise. */
 const HALOS = [
-  { speed:  24, lo: 0, hi: 3, blur: 20, base: 0.42 },
-  { speed: -15, lo: 2, hi: 5, blur: 38, base: 0.34 },
-  { speed:   9, lo: 4, hi: 7, blur: 60, base: 0.26 },
+  { speed:  24, lo: 0, hi: 3, blur: 18, base: 0.55, shift: 0, noise: true },
+  { speed: -15, lo: 2, hi: 5, blur: 34, base: 0.42, shift: 3, noise: true },
+  // Outer layer stays un-displaced: it is ambient bloom, and a third SVG
+  // filter at 30fps costs more than it adds.
+  { speed:   9, lo: 4, hi: 7, blur: 58, base: 0.30, shift: 5, noise: false },
+];
+
+/* One colour per band, so a given frequency always lights the same part of the
+ * ring. Blues and violets only — the accent stays a single family. */
+const GLOW_HUES = [
+  [ 79, 168, 255], [ 23, 200, 255], [170, 225, 255], [ 96, 150, 255],
+  [106,  92, 255], [ 43, 123, 255], [ 20, 180, 255],
 ];
 
 const $ = id => document.getElementById(id);
@@ -48,6 +57,8 @@ const el = {
 };
 const paths = [...document.querySelectorAll('#ribbons path')];
 const halos = [...document.querySelectorAll('#aura .halo')];
+const gnTurb = $('gn-turb');
+const gnDisp = $('gn-disp');
 
 let phase = 'idle';
 let visual = 'ribbons';
@@ -170,7 +181,24 @@ function reveal(p) {
   }
 }
 
+/** Conic gradient built from the live band energies, so brightness varies
+ *  around the perimeter with what is being said rather than sweeping uniformly.
+ *  `shift` rotates which band owns which arc, giving each layer its own
+ *  distribution. The final stop repeats the first so the ring closes seamlessly. */
+function conicFromBands(angleDeg, shift) {
+  let stops = '';
+  for (let i = 0; i <= NBANDS; i++) {
+    const idx = (i + shift) % NBANDS;
+    const c = GLOW_HUES[idx];
+    const a = (0.03 + 0.97 * band[idx]).toFixed(3);
+    stops += `rgba(${c[0]},${c[1]},${c[2]},${a}) ${((i / NBANDS) * 100).toFixed(1)}%`;
+    if (i < NBANDS) stops += ',';
+  }
+  return `conic-gradient(from ${angleDeg.toFixed(1)}deg,${stops})`;
+}
+
 let last = performance.now();
+let lastPaint = 0;
 function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -180,9 +208,10 @@ function tick(now) {
 
   // Fast attack, slow decay — a symmetric filter makes speech look like mush,
   // because consonant transients are gone before a slow attack can reach them.
+  // Decay is quick enough that the glow visibly drops between syllables.
   for (let i = 0; i < NBANDS; i++) {
     const tgt = phase === 'listening' ? bandTarget[i] : 0;
-    const k = tgt > band[i] ? dt * 24 : dt * 7;
+    const k = tgt > band[i] ? dt * 30 : dt * 10;
     band[i] += (tgt - band[i]) * Math.min(1, k);
   }
 
@@ -194,34 +223,60 @@ function tick(now) {
       paths[i].setAttribute('d', ribbonPath(RIBBONS[i], t, lvl));
     }
   } else {
-    let total = 0;
+    let total = 0, peak = 0;
+    for (let i = 0; i < NBANDS; i++) {
+      total += band[i];
+      if (band[i] > peak) peak = band[i];
+    }
+    const avg = total / NBANDS;
+
+    // Rebuilding a conic gradient forces a repaint of a blurred, filtered
+    // element, so it is throttled to the rate bands actually arrive at. At
+    // 60fps half the work would be redundant.
+    const rebuild = now - lastPaint > 32;
+    if (rebuild) lastPaint = now;
+
+    if (rebuild) {
+      // Displacement amount follows the loudest band, so a plosive visibly
+      // tears the outline rather than merely brightening it.
+      gnDisp.setAttribute('scale', (8 + 74 * peak).toFixed(1));
+      // Two slow, mutually incommensurate drifts plus an energy term: the
+      // texture keeps evolving instead of cycling, and tightens when louder.
+      const bx = 0.008 + 0.005 * Math.sin(t * 0.37) + 0.011 * avg;
+      const by = 0.013 + 0.006 * Math.cos(t * 0.29) + 0.013 * avg;
+      gnTurb.setAttribute('baseFrequency', `${bx.toFixed(4)} ${by.toFixed(4)}`);
+    }
+
     for (let i = 0; i < halos.length; i++) {
       const spec = HALOS[i];
       let e = 0;
       for (let b = spec.lo; b < spec.hi; b++) e += band[b];
       e /= spec.hi - spec.lo;
-      total += e;
 
-      const drive = e * level;
-      // Sweep the gradient, not the element: rotating the element would tumble
-      // the rounded rectangle and the halo would stop tracing the box.
-      halos[i].style.setProperty('--a', `${(t * spec.speed).toFixed(1)}deg`);
-      halos[i].style.opacity = (spec.base * (0.45 + 0.55 * drive)).toFixed(3);
-      // Tightens as it brightens. The swing stays small — a large one washes
-      // the layer out to nothing at rest.
-      halos[i].style.filter = `blur(${(spec.blur + 9 * (1 - drive)).toFixed(1)}px)`;
-      halos[i].style.transform = `scale(${(0.97 + 0.06 * drive).toFixed(4)})`;
+      if (rebuild) {
+        halos[i].style.background = conicFromBands(t * spec.speed, spec.shift);
+        halos[i].style.filter =
+          `${spec.noise ? 'url(#glowNoise) ' : ''}blur(${(spec.blur + 12 * (1 - e)).toFixed(1)}px)`;
+      }
+      // Driven by band energy alone. `level` is pinned to 1 for the whole
+      // listening phase, so folding it in here is what made the glow look
+      // inert — it only ever contributed a constant.
+      halos[i].style.opacity = (spec.base * (0.12 + 0.88 * e)).toFixed(3);
+      halos[i].style.transform = `scale(${(0.95 + 0.11 * e).toFixed(4)})`;
     }
 
     // The box itself breathes, so the glow reads as belonging to it rather
-    // than sitting behind it.
-    const g = (total / halos.length) * level;
-    el.box.style.boxShadow =
-      `0 0 ${(34 + 76 * g).toFixed(0)}px ${(-6 + 20 * g).toFixed(0)}px rgba(52,134,255,${(0.3 + 0.42 * g).toFixed(3)}),` +
-      `0 0 ${(14 + 26 * g).toFixed(0)}px rgba(150,215,255,${(0.16 + 0.26 * g).toFixed(3)}),` +
-      'inset 0 1px 0 rgba(255,255,255,.18),' +
-      'inset 0 0 0 1px rgba(140,200,255,.16),' +
-      '0 30px 80px -30px rgba(0,0,0,.95)';
+    // than sitting behind it. Throttled with the rest — a box-shadow change
+    // repaints the whole element.
+    if (rebuild) {
+      const g = avg;
+      el.box.style.boxShadow =
+        `0 0 ${(28 + 90 * g).toFixed(0)}px ${(-8 + 26 * g).toFixed(0)}px rgba(52,134,255,${(0.2 + 0.55 * g).toFixed(3)}),` +
+        `0 0 ${(10 + 32 * g).toFixed(0)}px rgba(150,215,255,${(0.1 + 0.34 * g).toFixed(3)}),` +
+        'inset 0 1px 0 rgba(255,255,255,.18),' +
+        'inset 0 0 0 1px rgba(140,200,255,.16),' +
+        '0 30px 80px -30px rgba(0,0,0,.95)';
+    }
   }
 
   if (words.length) reveal(Math.min(1, (now - revealStart) / 3600));

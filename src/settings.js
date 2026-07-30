@@ -66,7 +66,82 @@ function fmtEject(secs) {
   return `${Math.round(secs / 60)} min`;
 }
 
+/* --- hotkey capture ------------------------------------------------------
+ *
+ * Browsers give us `event.code`, Windows wants a virtual-key code. Only the
+ * keys anyone actually binds are mapped; anything else is rejected with a
+ * message rather than silently stored as 0.
+ */
+function codeToVk(code) {
+  if (/^Key[A-Z]$/.test(code)) return { vk: 0x41 + code.charCodeAt(3) - 65, label: code[3] };
+  if (/^Digit[0-9]$/.test(code)) return { vk: 0x30 + +code[5], label: code[5] };
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return { vk: 0x70 + (+code.slice(1) - 1), label: code };
+  const fixed = {
+    Space: [0x20, 'Space'], Enter: [0x0D, 'Enter'], Tab: [0x09, 'Tab'],
+    Backquote: [0xC0, '`'], Minus: [0xBD, '-'], Equal: [0xBB, '='],
+    BracketLeft: [0xDB, '['], BracketRight: [0xDD, ']'], Backslash: [0xDC, '\\'],
+    Semicolon: [0xBA, ';'], Quote: [0xDE, "'"], Comma: [0xBC, ','],
+    Period: [0xBE, '.'], Slash: [0xBF, '/'], Insert: [0x2D, 'Insert'],
+    Home: [0x24, 'Home'], End: [0x23, 'End'], PageUp: [0x21, 'PgUp'],
+    PageDown: [0x22, 'PgDn'],
+  }[code];
+  return fixed ? { vk: fixed[0], label: fixed[1] } : null;
+}
+
+function drawHotkey(hk, arming) {
+  const keys = $('hk-keys');
+  keys.classList.toggle('arm', !!arming);
+  const parts = [];
+  if (hk.ctrl) parts.push('Ctrl');
+  if (hk.shift) parts.push('Shift');
+  if (hk.alt) parts.push('Alt');
+  if (hk.win) parts.push('Win');
+  parts.push(hk.label);
+  keys.innerHTML = parts.map(p => `<kbd>${p}</kbd>`).join('<s>+</s>');
+}
+
+let arming = false;
+function armCapture() {
+  arming = true;
+  $('hk-capture').classList.add('arm');
+  $('hk-capture').textContent = 'Press keys…';
+  $('hk-note').textContent = 'Hold your modifiers and press the main key. Esc cancels.';
+}
+function disarmCapture() {
+  arming = false;
+  $('hk-capture').classList.remove('arm');
+  $('hk-capture').textContent = 'Change';
+  $('hk-note').textContent =
+    'Held to dictate. Swallowed while held, so the focused app never sees it.';
+  drawHotkey(cfg.hotkey, false);
+}
+
+window.addEventListener('keydown', e => {
+  if (!arming) return;
+  e.preventDefault();
+  if (e.code === 'Escape') { disarmCapture(); return; }
+  // Modifier-only presses just update the preview; wait for a real key.
+  if (['ControlLeft','ControlRight','ShiftLeft','ShiftRight','AltLeft','AltRight','MetaLeft','MetaRight'].includes(e.code)) {
+    drawHotkey({ ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, win: e.metaKey, label: '…' }, true);
+    return;
+  }
+  const mapped = codeToVk(e.code);
+  if (!mapped) { toast(`${e.code} can't be used as a hotkey`); return; }
+  if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+    // A bare key, or Shift+key, would fire during ordinary typing.
+    toast('Include Ctrl, Alt or Win, or the hotkey will fire while you type');
+    return;
+  }
+  cfg.hotkey = {
+    ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, win: e.metaKey,
+    vk: mapped.vk, label: mapped.label,
+  };
+  disarmCapture();
+  save('Hotkey set');
+}, true);
+
 function render() {
+  drawHotkey(cfg.hotkey, false);
   $('launch_at_startup').classList.toggle('on', cfg.launch_at_startup);
   $('preload_model').classList.toggle('on', cfg.preload_model);
   $('language').value = cfg.language;
@@ -80,6 +155,8 @@ function render() {
 
   document.querySelectorAll('#engine button')
     .forEach(b => b.classList.toggle('on', b.dataset.v === cfg.engine));
+  document.querySelectorAll('.model')
+    .forEach(b => b.hidden = b.dataset.engine !== cfg.engine);
   document.querySelectorAll('.vis')
     .forEach(b => b.classList.toggle('on', b.dataset.v === cfg.visual));
   document.querySelectorAll('.model')
@@ -138,38 +215,61 @@ async function boot() {
     save();
   };
 
-  // Engine. faster-whisper is listed but not yet implemented; say so plainly
-  // rather than letting someone select a dead option.
-  document.querySelectorAll('#engine button').forEach(b => {
-    if (b.dataset.v === 'faster-whisper' && !s.engines.includes('faster-whisper')) {
-      b.disabled = true;
-    }
-    b.onclick = () => { cfg.engine = b.dataset.v; render(); save('Engine set'); };
+  // Engines. Unavailable ones stay visible but unselectable, and clicking one
+  // explains why rather than doing nothing.
+  const segs = $('engine');
+  s.engines.forEach(en => {
+    const b = document.createElement('button');
+    b.dataset.v = en.id;
+    b.textContent = en.name;
+    b.title = en.note;
+    if (!en.available) b.classList.add('off');
+    b.onclick = () => {
+      if (!en.available) {
+        $('engine-hint').textContent = `${en.name}: ${en.note} Not built into this version.`;
+        toast(`${en.name} is not available yet`);
+        return;
+      }
+      cfg.engine = en.id;
+      $('engine-hint').textContent = en.note;
+      render();
+      save('Engine set');
+    };
+    segs.appendChild(b);
   });
-  $('engine-hint').textContent = s.engines.includes('faster-whisper')
-    ? 'faster-whisper needs an NVIDIA GPU and a Python runtime.'
-    : 'faster-whisper is not installed in this build. whisper.cpp reaches any GPU through Vulkan and needs no Python.';
+  $('engine-hint').textContent =
+    s.engines.find(e => e.id === cfg.engine)?.note ?? '';
 
   // Models.
   const wrap = $('models');
+  const widest = Math.max(...s.models.map(x => x.size_mb));
+  const engineOf = id => s.engines.find(e => e.id === id);
   s.models.forEach(m => {
     const b = document.createElement('button');
     b.className = 'model';
     b.dataset.file = m.file;
+    b.dataset.engine = m.engine;
+    const usable = engineOf(m.engine)?.available && m.installed;
     const recommended = m.file === s.recommendation.model;
-    const widest = Math.max(...s.models.map(x => x.size_mb));
+    const tag = !engineOf(m.engine)?.available ? 'ENGINE NOT BUILT'
+              : m.installed ? 'INSTALLED' : 'NOT DOWNLOADED';
     b.innerHTML = `
       <div class="top">
         <span class="nm">${m.name}</span>
-        <span class="tag">${m.installed ? 'INSTALLED' : 'NOT DOWNLOADED'}</span>
+        <span class="tag">${tag}</span>
+        ${m.streaming ? '<span class="stream">STREAMING</span>' : ''}
         ${recommended ? '<span class="rec">RECOMMENDED</span>' : ''}
       </div>
       <div class="bar"><div style="width:${Math.round(m.size_mb / widest * 100)}%"></div></div>
-      <div class="note${m.installed ? '' : ' miss'}">
-        ${m.size_mb} MB · needs ~${(m.needs_mb / 1024).toFixed(1)} GB · ${m.note}
-        ${m.installed ? '' : '<br>Place the file in the models folder to use it.'}
+      <div class="note${usable ? '' : ' miss'}">
+        ${m.size_mb} MB · needs ~${(m.needs_mb / 1024).toFixed(1)} GB · ${m.license} · ${m.note}
+        ${m.installed || m.engine !== 'whisper.cpp' ? '' : '<br>Place the file in the models folder to use it.'}
       </div>`;
     b.onclick = () => {
+      if (!engineOf(m.engine)?.available) {
+        toast(`Needs the ${engineOf(m.engine)?.name} engine, which isn't built yet`);
+        return;
+      }
       if (!m.installed) { toast('That model is not downloaded yet'); return; }
       cfg.model = m.file;
       render();
@@ -177,6 +277,8 @@ async function boot() {
     };
     wrap.appendChild(b);
   });
+
+  $('hk-capture').onclick = () => (arming ? disarmCapture() : armCapture());
 
   document.querySelectorAll('.vis').forEach(b => {
     b.onclick = () => { cfg.visual = b.dataset.v; render(); save('Overlay style set'); };

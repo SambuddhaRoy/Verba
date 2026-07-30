@@ -7,6 +7,20 @@
 </head>
 <body>
 
+<!-- Fractal-noise displacement for the glow. Deforms the halo silhouette so the
+     glow is never a uniform band: it thickens, thins and breaks up. Both the
+     displacement amount and the noise scale are driven from audio, so the
+     texture churns with speech rather than on a fixed loop. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <filter id="glowNoise" x="-45%" y="-45%" width="190%" height="190%"
+          color-interpolation-filters="sRGB">
+    <feTurbulence id="gn-turb" type="fractalNoise" baseFrequency="0.013 0.019"
+                  numOctaves="3" seed="11" result="n"></feTurbulence>
+    <feDisplacementMap id="gn-disp" in="SourceGraphic" in2="n" scale="22"
+                       xChannelSelector="R" yChannelSelector="G"></feDisplacementMap>
+  </filter>
+</defs></svg>
+
 <!-- Two visual treatments, one shown at a time. Switched from Settings. -->
 
 <div id="stage-ribbons" class="stage">

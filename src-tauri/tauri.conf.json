@@ -40,7 +40,11 @@
         "transparent": true,
         "resizable": true,
         "visible": false,
-        "windowEffects": { "effects": ["mica"] }
+        "shadow": true,
+        "windowEffects": {
+          "effects": ["acrylic", "blur"],
+          "state": "active"
+        }
       }
     ],
     "security": {
