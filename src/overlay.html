@@ -25,12 +25,12 @@
 
 <div id="stage-ribbons" class="stage">
   <div id="glass">
-    <!-- Soft field, then the frosting that blurs it. backdrop-filter samples
-         what is painted below it in the same stacking context, so the blur
-         needs something of its own to work on — a transparent overlay window
-         has no desktop behind it to sample. -->
+    <!-- The desktop, captured behind this window and scaled down hard. A
+         transparent overlay window has nothing for backdrop-filter to sample,
+         so the only way to blur what is behind the panel is to go and fetch
+         it. #field tints the result; the dark fill on #glass sits over both. -->
+    <canvas id="behind"></canvas>
     <div id="field"></div>
-    <div id="frost"></div>
 
     <div id="wave">
       <svg viewBox="0 0 1000 160" preserveAspectRatio="none">

@@ -63,26 +63,32 @@ html, body {
     margin-top .6s ease;
 }
 
-/* Field the frosting has something to blur. Deliberately desaturated and
-   near-monochrome: the ribbons are the only colour in this treatment. */
-#field {
+/* Captured desktop. It is grabbed at 1/8 scale, so it is stretched back up
+   here — the interpolation plus the CSS blur is what turns it into frosted
+   glass. Darkened and desaturated so it never competes with the transcript. */
+#behind {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   border-radius: inherit;
-  background:
-    radial-gradient(120% 140% at 50% -20%, rgba(150, 165, 220, .22), transparent 70%),
-    radial-gradient(80% 120% at 12% 120%, rgba(120, 130, 190, .16), transparent 72%);
+  object-fit: cover;
+  filter: blur(14px) saturate(70%) brightness(.42);
+  transform: scale(1.08);   /* hide the soft edges the blur pulls inward */
   opacity: 0;
   transition: opacity .7s ease;
   pointer-events: none;
 }
 
-#frost {
+/* Tint over the capture. Desaturated and near-monochrome: the ribbons are the
+   only colour in this treatment. */
+#field {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  backdrop-filter: blur(26px) saturate(140%) brightness(.72);
-  -webkit-backdrop-filter: blur(26px) saturate(140%) brightness(.72);
+  background:
+    radial-gradient(120% 140% at 50% -20%, rgba(120, 135, 190, .16), transparent 70%),
+    radial-gradient(80% 120% at 12% 120%, rgba(100, 110, 170, .12), transparent 72%);
   opacity: 0;
   transition: opacity .7s ease;
   pointer-events: none;

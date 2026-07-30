@@ -49,7 +49,7 @@ const GLOW_STOPS = [
 const $ = id => document.getElementById(id);
 const el = {
   stageRibbons: $('stage-ribbons'), stageGlow: $('stage-glow'),
-  glass: $('glass'), field: $('field'), frost: $('frost'),
+  glass: $('glass'), field: $('field'), behind: $('behind'),
   wave: $('wave'), blend: $('blend'), body: $('body'),
   status: $('status'), timer: $('timer'), line: $('line'), engine: $('engine'),
   shell: $('glow-shell'), aura: $('aura'), box: $('glow-box'),
@@ -78,6 +78,22 @@ function setBands(arr) {
     specTarget = new Float32Array(arr.length);
   }
   for (let i = 0; i < arr.length; i++) specTarget[i] = arr[i] || 0;
+}
+
+/** Paint the captured desktop into the backdrop canvas.
+ *
+ *  The image arrives at 1/8 scale; CSS stretches it back up. That upscale plus
+ *  the CSS blur is what makes it read as frosted glass rather than a thumbnail. */
+function setBackdrop(bd) {
+  if (!bd || !el.behind) return;
+  const bin = atob(bd.rgba);
+  const buf = new Uint8ClampedArray(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  if (buf.length !== bd.width * bd.height * 4) return;
+
+  el.behind.width = bd.width;
+  el.behind.height = bd.height;
+  el.behind.getContext('2d').putImageData(new ImageData(buf, bd.width, bd.height), 0, 0);
 }
 
 /** Spectrum sampled at an arbitrary position, linearly interpolated. */
@@ -142,8 +158,11 @@ function conicFromSpectrum(angleDeg, shift) {
 
 // --- layout ---------------------------------------------------------------
 
+// Dark, not light. The previous white-tinted gradient made the panel brighter
+// than whatever was behind it, so light text sat on light ground and the
+// transcript was unreadable over most desktops.
 const GLASS_FILL =
-  'linear-gradient(157deg,rgba(255,255,255,.1),rgba(255,255,255,.026) 44%,rgba(255,255,255,.062))';
+  'linear-gradient(157deg,rgba(17,19,27,.88),rgba(10,11,17,.93) 44%,rgba(15,17,25,.90))';
 const GLASS_SHADOW =
   '0 42px 96px -26px rgba(0,0,0,.9),0 0 64px -18px rgba(160,130,255,.18),' +
   'inset 0 1px 0 rgba(255,255,255,.32),inset 0 0 0 1px rgba(255,255,255,.06)';
@@ -179,7 +198,7 @@ function applyLayout() {
     el.wave.style.transform = 'scaleX(.06)';
     el.wave.style.opacity = '0';
     el.field.style.opacity = '0';
-    el.frost.style.opacity = '0';
+    el.behind.style.opacity = '0';
     el.blend.style.opacity = '0';
     el.body.style.height = '0px';
   } else if (!expanded) {
@@ -193,7 +212,7 @@ function applyLayout() {
     el.wave.style.transform = 'scaleX(1)';
     el.wave.style.opacity = '1';
     el.field.style.opacity = '0';
-    el.frost.style.opacity = '0';
+    el.behind.style.opacity = '0';
     el.blend.style.opacity = '0';
     el.body.style.height = '0px';
   } else {
@@ -204,7 +223,7 @@ function applyLayout() {
     el.wave.style.transform = 'scaleX(1)';
     el.wave.style.opacity = '1';
     el.field.style.opacity = '1';
-    el.frost.style.opacity = '1';
+    el.behind.style.opacity = '1';
     el.blend.style.opacity = '1';
     el.body.style.height = '210px';
   }
@@ -337,6 +356,7 @@ if (!api?.listen) {
     if (payload.visual && payload.visual !== visual) setVisual(payload.visual);
     if (payload.phase !== phase) setPhase(payload.phase);
     if (Array.isArray(payload.bands)) setBands(payload.bands);
+    if (payload.backdrop) setBackdrop(payload.backdrop);
 
     if (typeof payload.elapsed === 'number') {
       const s = Math.floor(payload.elapsed);
