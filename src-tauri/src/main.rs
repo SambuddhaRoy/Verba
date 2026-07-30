@@ -98,7 +98,7 @@ struct SettingsState {
     recommendation: hardware::Recommendation,
     models: Vec<config::ModelInfo>,
     microphones: Vec<String>,
-    engines: Vec<&'static str>,
+    engines: Vec<config::EngineInfo>,
     log_path: String,
     config_path: String,
 }
@@ -112,9 +112,10 @@ fn get_state() -> SettingsState {
         hardware: hw,
         models: config::catalogue(),
         microphones: audio::input_devices(),
-        // faster-whisper is not wired up yet; the UI greys it out rather than
-        // offering a selection that would silently do nothing.
-        engines: vec!["whisper.cpp"],
+        // Every known engine is listed with an availability flag. Unbuilt ones
+        // are shown greyed rather than hidden, so the roadmap is visible
+        // without offering a choice that would silently do nothing.
+        engines: config::engines(),
         log_path: log::path().display().to_string(),
         config_path: config::path().display().to_string(),
     }
@@ -130,6 +131,10 @@ fn set_config(app: AppHandle, cfg: config::Config) -> Result<(), String> {
             return Err(format!("saved, but startup entry failed: {e}"));
         }
     }
+    if cfg.hotkey != previous.hotkey {
+        hotkey::set_binding(cfg.hotkey.vk, cfg.hotkey.mods());
+        log!("hotkey rebound to {}", cfg.hotkey.label);
+    }
     // Push the overlay treatment through immediately — it is the one setting
     // with an instant visible effect, so waiting for the next dictation to
     // apply it would read as the control being broken.
@@ -139,6 +144,16 @@ fn set_config(app: AppHandle, cfg: config::Config) -> Result<(), String> {
         emit(&app, s);
     }
     Ok(())
+}
+
+fn hotkey_label(hk: &config::Hotkey) -> String {
+    let mut parts = Vec::new();
+    if hk.ctrl { parts.push("Ctrl"); }
+    if hk.shift { parts.push("Shift"); }
+    if hk.alt { parts.push("Alt"); }
+    if hk.win { parts.push("Win"); }
+    parts.push(&hk.label);
+    parts.join("+")
 }
 
 fn show_settings(app: &AppHandle) {
@@ -166,6 +181,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
     }
 
     let recorder = audio::Recorder::new(cfg.microphone.as_deref())?;
+    hotkey::set_binding(cfg.hotkey.vk, cfg.hotkey.mods());
     let events = hotkey::spawn()?;
 
     let overlay = app
@@ -179,7 +195,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
     boot.model = Some(cfg.model.clone());
     emit(&app, boot);
 
-    log!("ready — hold Ctrl+Shift+Space to dictate");
+    log!("ready — hold {} to dictate", hotkey_label(&cfg.hotkey));
 
     let mut listening = false;
     let mut mark = 0u64;

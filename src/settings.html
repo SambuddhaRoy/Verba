@@ -38,9 +38,10 @@
       <div class="card row">
         <div class="grow">
           <b>Global hotkey</b>
-          <small>Held to dictate. Swallowed while held, so the focused app never sees it.</small>
+          <small id="hk-note">Held to dictate. Swallowed while held, so the focused app never sees it.</small>
         </div>
-        <div class="keys"><kbd>Ctrl</kbd><s>+</s><kbd>Shift</kbd><s>+</s><kbd>Space</kbd></div>
+        <div class="keys" id="hk-keys"></div>
+        <button class="btn" id="hk-capture">Change</button>
       </div>
 
       <div class="card row">
@@ -100,10 +101,7 @@
       <h1>Models</h1>
       <p class="sub" id="rec-line">Working out what suits this machine…</p>
 
-      <div class="seg" id="engine">
-        <button data-v="whisper.cpp" class="on">whisper.cpp</button>
-        <button data-v="faster-whisper">faster-whisper</button>
-      </div>
+      <div class="seg" id="engine"></div>
       <p class="hint" id="engine-hint"></p>
 
       <div id="models"></div>

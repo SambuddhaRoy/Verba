@@ -114,9 +114,14 @@ impl Analyzer {
             let power: f32 = self.spectrum[lo..hi].iter().map(|c| c.norm_sqr()).sum();
             let mag = (power / count).sqrt() / (FFT_SIZE as f32 * 0.25);
             // Work in dB: linear magnitude spends most of its range on silence,
-            // so a linear bar barely moves for ordinary speech.
+            // so a linear reading barely moves for ordinary speech.
             let db = 20.0 * (mag + 1e-9).log10();
-            out[b] = ((db + 55.0) / 55.0).clamp(0.0, 1.0);
+            // Window on the range speech actually occupies. A wider one (-55..0)
+            // maps normal talking into the middle third and the visualiser looks
+            // inert; -48..-12 spends the full range where the voice lives.
+            let norm = ((db + 48.0) / 36.0).clamp(0.0, 1.0);
+            // Slight expansion for contrast between syllables and silence.
+            out[b] = norm.powf(1.4);
         }
         out
     }

@@ -204,24 +204,14 @@ html, body {
   position: absolute;
   will-change: opacity, filter, transform;
 }
-.h1 {
-  inset: -12px;
-  border-radius: 38px;
-  background: conic-gradient(from var(--a), #2B7BFF, #17C8FF 22%, #9BDCFF 45%, #6A5CFF 72%, #2B7BFF);
-  filter: blur(20px);
-}
-.h2 {
-  inset: -30px;
-  border-radius: 56px;
-  background: conic-gradient(from var(--a), #17C8FF, #6A5CFF 35%, #2B7BFF 68%, #17C8FF);
-  filter: blur(38px);
-}
-.h3 {
-  inset: -54px;
-  border-radius: 80px;
-  background: conic-gradient(from var(--a), #6A5CFF, #0AA6FF 42%, #2B7BFF 74%, #6A5CFF);
-  filter: blur(60px);
-}
+/* Insets and radii only. The conic gradient is rebuilt per frame from the band
+   energies so brightness varies around the perimeter with what is actually
+   being said, and `filter` is set alongside it to chain noise displacement
+   ahead of the blur — displace the sharp shape first, then soften, or the
+   wobble smears into nothing. */
+.h1 { inset: -12px; border-radius: 38px; }
+.h2 { inset: -30px; border-radius: 56px; }
+.h3 { inset: -54px; border-radius: 80px; }
 
 #glow-box {
   position: relative;
