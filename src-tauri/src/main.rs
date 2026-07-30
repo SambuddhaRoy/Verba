@@ -462,6 +462,32 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // `verba --meters [secs]` — live spectrum from the real microphone, drawn
+    // in the console. The only way to tell whether the visualiser looks dead
+    // because of the rendering or because the numbers reaching it are dead.
+    if arg1 == Some("--meters") {
+        let secs: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(12);
+        let rec = audio::Recorder::new(config::load().microphone.as_deref())?;
+        log!("speak — {secs}s of live band energy\n");
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(secs) {
+            let bands = rec.bands();
+            let bar: String = bands
+                .iter()
+                .map(|&v| {
+                    // Eight levels of block, so a glance shows the shape.
+                    const R: &[char] = &[' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+                    R[((v * 8.0).round() as usize).min(8)]
+                })
+                .collect();
+            let peak = bands.iter().cloned().fold(0.0f32, f32::max);
+            let mean = bands.iter().sum::<f32>() / bands.len() as f32;
+            log!("[{bar}] peak {peak:.2} mean {mean:.2}");
+            std::thread::sleep(Duration::from_millis(120));
+        }
+        return Ok(());
+    }
+
     // `verba --download <name-fragment>` — headless model fetch, and the way
     // the download path gets exercised without a window.
     if arg1 == Some("--download") {
