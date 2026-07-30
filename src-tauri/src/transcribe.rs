@@ -8,7 +8,7 @@ use anyhow::Result;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
-use crate::{config, fasterwhisper, stt};
+use crate::{config, fasterwhisper, parakeet, stt};
 
 /// The loaded model, whichever engine it belongs to. An enum rather than a
 /// trait object: there are two variants and no third on the horizon, so a trait
@@ -16,6 +16,7 @@ use crate::{config, fasterwhisper, stt};
 enum Backend {
     WhisperCpp(stt::Engine),
     FasterWhisper(fasterwhisper::Sidecar),
+    Parakeet(parakeet::Sidecar),
 }
 
 impl Backend {
@@ -23,6 +24,7 @@ impl Backend {
         match self {
             Backend::WhisperCpp(e) => e.transcribe(pcm, quick),
             Backend::FasterWhisper(s) => s.transcribe(pcm, quick),
+            Backend::Parakeet(s) => s.transcribe(pcm, quick),
         }
     }
 
@@ -31,6 +33,10 @@ impl Backend {
             "faster-whisper" => {
                 Ok(Backend::FasterWhisper(fasterwhisper::Sidecar::new(&cfg.model)?))
             }
+            "parakeet" => Ok(Backend::Parakeet(parakeet::Sidecar::new(
+                &cfg.model,
+                cfg.threads,
+            )?)),
             _ => Ok(Backend::WhisperCpp(stt::Engine::new(
                 &crate::model_path(&cfg.model)?,
                 cfg.threads,

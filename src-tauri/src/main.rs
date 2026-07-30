@@ -20,6 +20,7 @@ mod hardware;
 mod hotkey;
 mod inject;
 mod overlay;
+mod parakeet;
 mod startup;
 mod stt;
 mod transcribe;
@@ -40,8 +41,13 @@ const MIN_SPEECH_MS: u128 = 300;
 const LINGER: Duration = Duration::from_millis(2600);
 /// Level updates while listening. ~30fps is plenty for a wave this soft.
 const TICK: Duration = Duration::from_millis(33);
-/// How often to run an interim pass while the key is held.
-const PARTIAL_EVERY: Duration = Duration::from_millis(850);
+/// Interim-pass cadence, adapted to how long a pass actually takes. A fixed
+/// interval has to be set for the slowest engine, which wastes Parakeet — it
+/// decodes in about 90ms where whisper small takes 300. Held at roughly three
+/// times the measured cost so the worker stays mostly idle and the final pass
+/// never queues behind a backlog.
+const PARTIAL_MIN: Duration = Duration::from_millis(280);
+const PARTIAL_MAX: Duration = Duration::from_millis(1200);
 /// Whisper needs roughly this much audio before it produces anything useful.
 const PARTIAL_MIN_SECS: f32 = 1.2;
 
@@ -181,15 +187,32 @@ fn download_model(app: AppHandle, file: String) -> Result<(), String> {
         .into_iter()
         .find(|m| m.file == file)
         .ok_or_else(|| format!("unknown model: {file}"))?;
-    if entry.engine != "whisper.cpp" {
-        return Err(format!(
-            "{} needs the {} engine, which is not built into this version.",
-            entry.name, entry.engine
-        ));
+    if entry.url.is_empty() {
+        return Err(format!("{} downloads itself on first use", entry.name));
     }
+    if entry.engine == "parakeet" && !parakeet::is_installed() {
+        return Err("Install the Parakeet engine first".into());
+    }
+
     std::thread::Builder::new()
         .name("download".into())
-        .spawn(move || download::fetch(&app, &entry.file, &entry.url))
+        .spawn(move || {
+            // sherpa-onnx models are archives of ONNX files, so the download
+            // lands as .tar.bz2 and is unpacked into a directory named after
+            // the archive.
+            let archive = if entry.engine == "parakeet" {
+                format!("{}.tar.bz2", entry.file)
+            } else {
+                entry.file.clone()
+            };
+            download::fetch_named(&app, &entry.file, &archive, &entry.url, |path| {
+                if entry.engine == "parakeet" {
+                    parakeet::extract(path)
+                } else {
+                    Ok(())
+                }
+            });
+        })
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -198,27 +221,32 @@ fn download_model(app: AppHandle, file: String) -> Result<(), String> {
 /// `verba:engine` for progress.
 #[tauri::command]
 fn install_engine(app: AppHandle, id: String) -> Result<(), String> {
-    if id != "faster-whisper" {
+    if !config::installable_engines().contains(&id.as_str()) {
         return Err(format!("{id} cannot be installed from here"));
     }
     std::thread::Builder::new()
         .name("engine-install".into())
         .spawn(move || {
+            let name = id.clone();
             let say = |msg: &str, done: bool, error: Option<String>| {
                 let _ = app.emit(
                     "verba:engine",
-                    serde_json::json!({ "id": "faster-whisper", "message": msg,
+                    serde_json::json!({ "id": name, "message": msg,
                                         "done": done, "error": error }),
                 );
             };
-            let result = fasterwhisper::install(|m| {
-                log!("faster-whisper: {m}");
+            let report = |m: &str| {
+                log!("{id}: {m}");
                 say(m, false, None);
-            });
+            };
+            let result = match id.as_str() {
+                "parakeet" => parakeet::install(report),
+                _ => fasterwhisper::install(report),
+            };
             match result {
                 Ok(()) => say("Installed", true, None),
                 Err(e) => {
-                    log!("faster-whisper install failed: {e}");
+                    log!("{id} install failed: {e}");
                     say("Failed", true, Some(e.to_string()));
                 }
             }
@@ -236,6 +264,54 @@ fn reveal_models_dir() -> Result<(), String> {
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Minimal 16-bit PCM WAV reader, for the --transcribe diagnostic. Walks the
+/// chunk list rather than assuming a 44-byte header, since plenty of files
+/// carry LIST or fact chunks before the data.
+fn read_wav(path: &std::path::Path) -> Result<(Vec<f32>, u32)> {
+    let b = std::fs::read(path)?;
+    if b.len() < 12 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" {
+        bail_wav()?;
+    }
+    let (mut rate, mut channels, mut bits) = (0u32, 0u16, 0u16);
+    let mut pos = 12;
+    while pos + 8 <= b.len() {
+        let id = &b[pos..pos + 4];
+        let size = u32::from_le_bytes(b[pos + 4..pos + 8].try_into()?) as usize;
+        let body = pos + 8;
+        match id {
+            b"fmt " if body + 16 <= b.len() => {
+                channels = u16::from_le_bytes(b[body + 2..body + 4].try_into()?);
+                rate = u32::from_le_bytes(b[body + 4..body + 8].try_into()?);
+                bits = u16::from_le_bytes(b[body + 14..body + 16].try_into()?);
+            }
+            b"data" => {
+                if bits != 16 {
+                    return Err(anyhow!("only 16-bit PCM is supported, got {bits}-bit"));
+                }
+                let end = (body + size).min(b.len());
+                let ch = channels.max(1) as usize;
+                let samples: Vec<f32> = b[body..end]
+                    .chunks_exact(2)
+                    .map(|s| i16::from_le_bytes([s[0], s[1]]) as f32 / 32768.0)
+                    .collect();
+                // Downmix, matching what the recorder does live.
+                let mono = samples
+                    .chunks(ch)
+                    .map(|f| f.iter().sum::<f32>() / ch as f32)
+                    .collect();
+                return Ok((mono, rate));
+            }
+            _ => {}
+        }
+        pos = body + size + (size & 1); // chunks are word-aligned
+    }
+    Err(anyhow!("no data chunk in {}", path.display()))
+}
+
+fn bail_wav() -> Result<()> {
+    Err(anyhow!("not a RIFF/WAVE file"))
 }
 
 fn hotkey_label(hk: &config::Hotkey) -> String {
@@ -292,6 +368,9 @@ fn engine_loop(app: AppHandle) -> Result<()> {
     let mut started = Instant::now();
     let mut last_partial = Instant::now();
     let mut last_used = Instant::now();
+    // Seeded pessimistically; the first completed pass replaces it.
+    let mut partial_cost = Duration::from_millis(300);
+    let mut partial_sent: Option<Instant> = None;
     let mut hide_at: Option<Instant> = None;
     let mut unloaded = false;
 
@@ -331,6 +410,9 @@ fn engine_loop(app: AppHandle) -> Result<()> {
 
             Ok(hotkey::Event::Released) => {
                 listening = false;
+                // Any interim pass still in flight belongs to this utterance
+                // and is about to be superseded.
+                partial_sent = None;
                 let held = started.elapsed();
                 let raw = recorder.take_since(mark);
 
@@ -356,12 +438,14 @@ fn engine_loop(app: AppHandle) -> Result<()> {
 
         // Interim passes. Kicked off from here rather than on a timer thread so
         // there is only ever one place deciding what the engine is doing.
-        if listening && last_partial.elapsed() >= PARTIAL_EVERY {
+        let interval = (partial_cost * 3).clamp(PARTIAL_MIN, PARTIAL_MAX);
+        if listening && partial_sent.is_none() && last_partial.elapsed() >= interval {
             let raw = recorder.take_since(mark);
             let secs = raw.len() as f32 / recorder.sample_rate() as f32;
             if secs >= PARTIAL_MIN_SECS {
                 last_partial = Instant::now();
                 if let Ok(pcm) = audio::to_16k(&raw, recorder.sample_rate()) {
+                    partial_sent = Some(Instant::now());
                     let _ = worker.jobs.send(transcribe::Job::Transcribe {
                         pcm,
                         utterance,
@@ -376,6 +460,9 @@ fn engine_loop(app: AppHandle) -> Result<()> {
         while let Ok(done) = worker.done.try_recv() {
             match done {
                 transcribe::Done::Partial { text, utterance: g } => {
+                    if let Some(sent) = partial_sent.take() {
+                        partial_cost = sent.elapsed();
+                    }
                     // A pass from a previous utterance finishing late must not
                     // overwrite the current one.
                     if g != utterance || !listening || text.is_empty() {
@@ -549,6 +636,53 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // `verba --install-engine <id>` — same bootstrap the settings window runs,
+    // without a window.
+    if arg1 == Some("--install-engine") {
+        let id = args.get(2).map(String::as_str).unwrap_or("");
+        let report = |m: &str| log!("  {m}");
+        return match id {
+            "parakeet" => parakeet::install(report),
+            "faster-whisper" => fasterwhisper::install(report),
+            _ => Err(anyhow!("unknown engine '{id}' (parakeet | faster-whisper)")),
+        };
+    }
+
+    // `verba --transcribe <file.wav>` — run a real clip through whichever
+    // engine and model are configured. Exercises the whole Rust-to-backend
+    // path, which unit tests cannot reach.
+    if arg1 == Some("--transcribe") {
+        let Some(path) = args.get(2) else {
+            return Err(anyhow!("usage: verba --transcribe <file.wav>"));
+        };
+        let cfg = config::load();
+        let (pcm, rate) = read_wav(std::path::Path::new(path))?;
+        let pcm = audio::to_16k(&pcm, rate)?;
+        log!(
+            "{:.1}s of audio · engine {} · model {}",
+            pcm.len() as f32 / audio::TARGET_RATE as f32,
+            cfg.engine,
+            cfg.model
+        );
+
+        let worker = transcribe::spawn()?;
+        let t0 = Instant::now();
+        worker.jobs.send(transcribe::Job::Transcribe {
+            pcm,
+            utterance: 1,
+            final_pass: true,
+        })?;
+        return match worker.done.recv()? {
+            transcribe::Done::Final { text, took, .. } => {
+                log!("\n  {text}\n");
+                log!("decoded in {}ms (total {}ms incl. load)", took.as_millis(), t0.elapsed().as_millis());
+                Ok(())
+            }
+            transcribe::Done::Failed(e) => Err(anyhow!("{e}")),
+            _ => Err(anyhow!("unexpected reply")),
+        };
+    }
+
     // `verba --capture-test` — grab the region the overlay covers and report
     // what came back. A capture that silently returns black looks exactly like
     // a blur that isn't working.
@@ -584,25 +718,41 @@ fn main() -> Result<()> {
         let want = args.get(2).map(String::as_str).unwrap_or("");
         let Some(m) = config::catalogue()
             .into_iter()
-            .find(|m| m.engine == "whisper.cpp" && m.file.contains(want))
+            .find(|m| !m.url.is_empty() && m.file.contains(want))
         else {
-            log!("no whisper.cpp model matching '{want}'. Options:");
-            for m in config::catalogue().iter().filter(|m| m.engine == "whisper.cpp") {
-                log!("  {} ({} MB)", m.file, m.size_mb);
+            log!("no downloadable model matching '{want}'. Options:");
+            for m in config::catalogue().iter().filter(|m| !m.url.is_empty()) {
+                log!("  [{}] {} ({} MB)", m.engine, m.file, m.size_mb);
             }
             return Ok(());
         };
-        log!("fetching {} ({} MB)", m.file, m.size_mb);
+
+        // sherpa-onnx models arrive as archives and are unpacked into a
+        // directory; GGML models are the file itself.
+        let archive = if m.engine == "parakeet" {
+            format!("{}.tar.bz2", m.file)
+        } else {
+            m.file.clone()
+        };
+        log!("fetching {} ({} MB) for {}", m.file, m.size_mb, m.engine);
+
         let mut last_pct = u64::MAX;
-        return match download::fetch_with(&m.file, &m.url, |got, total| {
+        let got = download::fetch_with(&archive, &m.url, |got, total| {
             let pct = if total > 0 { got * 100 / total } else { 0 };
             if pct != last_pct {
                 last_pct = pct;
                 log!("  {pct}%  {} / {} MB", got / 1048576, total / 1048576);
             }
-        }) {
+        });
+        return match got {
             Ok(p) => {
-                log!("saved to {}", p.display());
+                if m.engine == "parakeet" {
+                    log!("extracting…");
+                    parakeet::extract(&p)?;
+                    log!("installed to {}", config::models_dir().join(&m.file).display());
+                } else {
+                    log!("saved to {}", p.display());
+                }
                 Ok(())
             }
             Err(e) => Err(anyhow!("download failed: {e}")),
