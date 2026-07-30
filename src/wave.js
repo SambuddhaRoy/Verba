@@ -32,11 +32,11 @@ const NBANDS = 7;
  * outer haze, so the glow moves rather than merely pulsing as one.
  * Speeds are mutually prime-ish so the layers never resynchronise. */
 const HALOS = [
-  { speed:  24, lo: 0, hi: 3, blur: 18, base: 0.55, shift: 0, noise: true },
-  { speed: -15, lo: 2, hi: 5, blur: 34, base: 0.42, shift: 3, noise: true },
+  { speed:  24, lo: 0, hi: 3, blur: 16, base: 0.95, shift: 0, noise: true },
+  { speed: -15, lo: 2, hi: 5, blur: 32, base: 0.78, shift: 3, noise: true },
   // Outer layer stays un-displaced: it is ambient bloom, and a third SVG
   // filter at 30fps costs more than it adds.
-  { speed:   9, lo: 4, hi: 7, blur: 58, base: 0.30, shift: 5, noise: false },
+  { speed:   9, lo: 4, hi: 7, blur: 56, base: 0.58, shift: 5, noise: false },
 ];
 
 /* One colour per band, so a given frequency always lights the same part of the
@@ -49,7 +49,8 @@ const GLOW_HUES = [
 const $ = id => document.getElementById(id);
 const el = {
   stageRibbons: $('stage-ribbons'), stageGlow: $('stage-glow'),
-  glass: $('glass'), rim: $('rim'), wave: $('wave'), blend: $('blend'),
+  glass: $('glass'), field: $('field'), frost: $('frost'),
+  wave: $('wave'), blend: $('blend'),
   body: $('body'), status: $('status'), timer: $('timer'), line: $('line'),
   shell: $('glow-shell'), aura: $('aura'), box: $('glow-box'),
   gStatus: $('g-status'), gTimer: $('g-timer'), gLine: $('g-line'),
@@ -66,7 +67,8 @@ let level = 0, levelTarget = 0;
 let t = 0;
 const band = new Array(NBANDS).fill(0);        // smoothed, what we draw
 const bandTarget = new Array(NBANDS).fill(0);  // latest from the engine
-let words = [], revealStart = 0;
+let words = [];
+let hasText = false;
 
 function ribbonPath(r, t, lvl) {
   const amp = r.a * (0.16 + 0.84 * lvl) * H * 0.46;
@@ -98,8 +100,17 @@ function setVisual(name) {
 
 function setPhase(next) {
   phase = next;
-  const listening = next === 'listening';
-  const idle = next === 'idle';
+  if (next === 'idle') hasText = false;
+  applyLayout();
+}
+
+/* Layout depends on both the phase and whether a transcript has arrived, since
+ * interim passes now deliver text mid-dictation: the panel has to open while
+ * still listening, not only once the key is released. */
+function applyLayout() {
+  const idle = phase === 'idle';
+  const listening = phase === 'listening';
+  const expanded = !idle && (hasText || !listening);
 
   if (idle) levelTarget = 0;
   else if (listening) levelTarget = 1;
@@ -113,71 +124,77 @@ function setPhase(next) {
     });
     el.wave.style.transform = 'scaleX(.06)';
     el.wave.style.opacity = '0';
-    el.rim.style.opacity = '0';
+    el.field.style.opacity = '0';
+    el.frost.style.opacity = '0';
     el.blend.style.opacity = '0';
     el.body.style.height = '0px';
-  } else if (listening) {
+  } else if (!expanded) {
     // Glass stays fully transparent here: the ribbons float in air with nothing
     // behind them. Deliberate in the design, and it means this state needs no
     // desktop backdrop at all.
     Object.assign(el.glass.style, {
       width: '560px', opacity: '1', background: 'transparent',
-      backdropFilter: 'none', boxShadow: 'none', marginTop: '10px',
+      boxShadow: 'none', marginTop: '10px',
     });
     el.wave.style.transform = 'scaleX(1)';
     el.wave.style.opacity = '1';
-    el.rim.style.opacity = '0';
+    el.field.style.opacity = '0';
+    el.frost.style.opacity = '0';
     el.blend.style.opacity = '0';
     el.body.style.height = '0px';
   } else {
     Object.assign(el.glass.style, {
       width: '620px', opacity: '1', background: GLASS_FILL,
-      backdropFilter: 'blur(38px) saturate(180%) brightness(.8)',
       boxShadow: GLASS_SHADOW, marginTop: '14px',
     });
     el.wave.style.transform = 'scaleX(1)';
     el.wave.style.opacity = '1';
-    el.rim.style.opacity = '1';
+    el.field.style.opacity = '1';
+    el.frost.style.opacity = '1';
     el.blend.style.opacity = '1';
-    el.body.style.height = '232px';
+    el.body.style.height = '210px';
   }
 
-  // glow — narrower while listening, since the box holds only the meta row
-  // until a transcript arrives.
-  el.shell.style.width = idle ? '300px' : listening ? '380px' : '560px';
+  // glow — narrow while the box holds only the meta row.
+  el.shell.style.width = idle ? '300px' : expanded ? '560px' : '380px';
   el.shell.style.opacity = idle ? '0' : '1';
   el.aura.style.opacity = idle ? '0' : '1';
-  el.gLine.classList.toggle('open', !idle && !listening);
+  el.gLine.classList.toggle('open', expanded);
 }
 
-function setText(text) {
+/* Render a transcript. `partial` marks it as an interim pass that a later one
+ * will replace, so the tail is tapered the way the design's confirmation
+ * cascade does — the most recent words are the least settled. There is no
+ * reveal animation any more: text now arrives while you speak, so replaying it
+ * afterwards would only add lag. */
+function setText(text, partial) {
   const host = visual === 'glow' ? el.gLine : el.line;
   const other = visual === 'glow' ? el.line : el.gLine;
   other.textContent = '';
   host.textContent = '';
+
   words = (text || '').split(/(\s+)/).filter(Boolean).map(w => {
     const s = document.createElement('span');
     s.textContent = w;
     host.appendChild(s);
     return s;
   });
+
+  const n = words.length;
+  words.forEach((w, i) => {
+    if (!partial) { w.style.opacity = '1'; return; }
+    const back = n - 1 - i;
+    w.style.opacity = back === 0 ? '.34' : back === 1 ? '.62' : back === 2 ? '.85' : '1';
+  });
+
   const caret = document.createElement('span');
   caret.className = 'caret';
   host.appendChild(caret);
-  revealStart = performance.now();
-}
 
-/* Opacity cascade from the design: words settle 0 -> .18 -> .34 -> .72 -> 1.
- * Whisper is not streaming, so this replays a finished transcript rather than
- * showing live partials — visually identical, and it costs nothing. */
-function reveal(p) {
-  const n = words.length;
-  if (!n) return;
-  const shown = p * (n + 2);
-  for (let i = 0; i < n; i++) {
-    const d = shown - i;
-    words[i].style.opacity =
-      d >= 1.6 ? '1' : d >= 1 ? '.72' : d >= 0.5 ? '.34' : d > 0 ? '.18' : '0';
+  // The panel opens as soon as there is something to show.
+  if (words.length > 0 !== hasText) {
+    hasText = words.length > 0;
+    applyLayout();
   }
 }
 
@@ -217,10 +234,11 @@ function tick(now) {
 
   if (visual === 'ribbons') {
     for (let i = 0; i < RIBBONS.length; i++) {
-      // Blend: the global level keeps every ribbon alive so the shape still
-      // reads as one object, while its own band gives it independent motion.
-      const lvl = level * (0.4 + 0.6 * band[i]);
-      paths[i].setAttribute('d', ribbonPath(RIBBONS[i], t, lvl));
+      // Each ribbon is driven by its own band, scaled by the phase envelope so
+      // the set collapses to the centre line at idle. Previously a 0.4 floor
+      // kept them swaying regardless of what was said, which read as decorative
+      // rather than responsive.
+      paths[i].setAttribute('d', ribbonPath(RIBBONS[i], t, band[i] * level));
     }
   } else {
     let total = 0, peak = 0;
@@ -237,13 +255,16 @@ function tick(now) {
     if (rebuild) lastPaint = now;
 
     if (rebuild) {
-      // Displacement amount follows the loudest band, so a plosive visibly
-      // tears the outline rather than merely brightening it.
-      gnDisp.setAttribute('scale', (8 + 74 * peak).toFixed(1));
+      // Displacement follows the loudest band, so a plosive visibly tears the
+      // outline rather than merely brightening it. The range is wide on
+      // purpose: at low displacement the halo is a smooth band, and the whole
+      // point is that it should not stay one.
+      gnDisp.setAttribute('scale', (14 + 130 * peak).toFixed(1));
       // Two slow, mutually incommensurate drifts plus an energy term: the
-      // texture keeps evolving instead of cycling, and tightens when louder.
-      const bx = 0.008 + 0.005 * Math.sin(t * 0.37) + 0.011 * avg;
-      const by = 0.013 + 0.006 * Math.cos(t * 0.29) + 0.013 * avg;
+      // texture keeps evolving instead of cycling, and breaks into finer
+      // filaments as it gets louder.
+      const bx = 0.010 + 0.006 * Math.sin(t * 0.37) + 0.020 * avg;
+      const by = 0.016 + 0.007 * Math.cos(t * 0.29) + 0.024 * avg;
       gnTurb.setAttribute('baseFrequency', `${bx.toFixed(4)} ${by.toFixed(4)}`);
     }
 
@@ -261,8 +282,8 @@ function tick(now) {
       // Driven by band energy alone. `level` is pinned to 1 for the whole
       // listening phase, so folding it in here is what made the glow look
       // inert — it only ever contributed a constant.
-      halos[i].style.opacity = (spec.base * (0.12 + 0.88 * e)).toFixed(3);
-      halos[i].style.transform = `scale(${(0.95 + 0.11 * e).toFixed(4)})`;
+      halos[i].style.opacity = (spec.base * (0.06 + 0.94 * e)).toFixed(3);
+      halos[i].style.transform = `scale(${(0.93 + 0.16 * e).toFixed(4)})`;
     }
 
     // The box itself breathes, so the glow reads as belonging to it rather
@@ -271,15 +292,14 @@ function tick(now) {
     if (rebuild) {
       const g = avg;
       el.box.style.boxShadow =
-        `0 0 ${(28 + 90 * g).toFixed(0)}px ${(-8 + 26 * g).toFixed(0)}px rgba(52,134,255,${(0.2 + 0.55 * g).toFixed(3)}),` +
-        `0 0 ${(10 + 32 * g).toFixed(0)}px rgba(150,215,255,${(0.1 + 0.34 * g).toFixed(3)}),` +
+        `0 0 ${(24 + 130 * g).toFixed(0)}px ${(-10 + 40 * g).toFixed(0)}px rgba(52,134,255,${(0.16 + 0.72 * g).toFixed(3)}),` +
+        `0 0 ${(8 + 44 * g).toFixed(0)}px rgba(160,220,255,${(0.08 + 0.5 * g).toFixed(3)}),` +
         'inset 0 1px 0 rgba(255,255,255,.18),' +
         'inset 0 0 0 1px rgba(140,200,255,.16),' +
         '0 30px 80px -30px rgba(0,0,0,.95)';
     }
   }
 
-  if (words.length) reveal(Math.min(1, (now - revealStart) / 3600));
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
@@ -318,7 +338,9 @@ if (!api?.listen) {
       el.engine.textContent = label;
       el.gEngine.textContent = label;
     }
-    if (payload.text !== undefined && payload.text !== null) setText(payload.text);
+    if (payload.text !== undefined && payload.text !== null) {
+      setText(payload.text, !!payload.partial);
+    }
   }).catch(err => console.error('Verba: listen() rejected', err));
 }
 

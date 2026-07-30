@@ -12,6 +12,7 @@ mod log;
 
 mod audio;
 mod config;
+mod download;
 mod focus;
 mod hardware;
 mod hotkey;
@@ -19,6 +20,7 @@ mod inject;
 mod overlay;
 mod startup;
 mod stt;
+mod transcribe;
 
 use anyhow::{anyhow, Result};
 use std::path::PathBuf;
@@ -35,6 +37,10 @@ const MIN_SPEECH_MS: u128 = 300;
 const LINGER: Duration = Duration::from_millis(2600);
 /// Level updates while listening. ~30fps is plenty for a wave this soft.
 const TICK: Duration = Duration::from_millis(33);
+/// How often to run an interim pass while the key is held.
+const PARTIAL_EVERY: Duration = Duration::from_millis(850);
+/// Whisper needs roughly this much audio before it produces anything useful.
+const PARTIAL_MIN_SECS: f32 = 1.2;
 
 #[derive(Clone, serde::Serialize)]
 struct State {
@@ -44,6 +50,8 @@ struct State {
     bands: [f32; audio::BANDS],
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<String>,
+    /// True while `text` is an interim guess that will be replaced.
+    partial: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     visual: Option<String>,
     /// Shown in the overlay's meta row. Sent on state changes, not every tick.
@@ -60,6 +68,7 @@ impl State {
             elapsed: 0.0,
             bands: [0.0; audio::BANDS],
             text: None,
+            partial: false,
             visual: None,
             model: None,
             gpu: cfg!(feature = "gpu-vulkan"),
@@ -75,7 +84,7 @@ fn emit(app: &AppHandle, state: State) {
     }
 }
 
-fn model_path(file: &str) -> Result<PathBuf> {
+pub(crate) fn model_path(file: &str) -> Result<PathBuf> {
     if let Ok(p) = std::env::var("VERBA_MODEL") {
         return Ok(PathBuf::from(p));
     }
@@ -89,7 +98,7 @@ fn model_path(file: &str) -> Result<PathBuf> {
     ))
 }
 
-// --- settings commands ----------------------------------------------------
+// --- commands -------------------------------------------------------------
 
 #[derive(serde::Serialize)]
 struct SettingsState {
@@ -101,6 +110,7 @@ struct SettingsState {
     engines: Vec<config::EngineInfo>,
     log_path: String,
     config_path: String,
+    models_dir: String,
 }
 
 #[tauri::command]
@@ -118,6 +128,7 @@ fn get_state() -> SettingsState {
         engines: config::engines(),
         log_path: log::path().display().to_string(),
         config_path: config::path().display().to_string(),
+        models_dir: config::models_dir().display().to_string(),
     }
 }
 
@@ -133,7 +144,7 @@ fn set_config(app: AppHandle, cfg: config::Config) -> Result<(), String> {
     }
     if cfg.hotkey != previous.hotkey {
         hotkey::set_binding(cfg.hotkey.vk, cfg.hotkey.mods());
-        log!("hotkey rebound to {}", cfg.hotkey.label);
+        log!("hotkey rebound to {}", hotkey_label(&cfg.hotkey));
     }
     // Push the overlay treatment through immediately — it is the one setting
     // with an instant visible effect, so waiting for the next dictation to
@@ -143,6 +154,38 @@ fn set_config(app: AppHandle, cfg: config::Config) -> Result<(), String> {
         s.visual = Some(cfg.visual.clone());
         emit(&app, s);
     }
+    Ok(())
+}
+
+/// Download a catalogue model. Returns as soon as the transfer starts; follow
+/// `verba:download` for progress.
+#[tauri::command]
+fn download_model(app: AppHandle, file: String) -> Result<(), String> {
+    let entry = config::catalogue()
+        .into_iter()
+        .find(|m| m.file == file)
+        .ok_or_else(|| format!("unknown model: {file}"))?;
+    if entry.engine != "whisper.cpp" {
+        return Err(format!(
+            "{} needs the {} engine, which is not built into this version.",
+            entry.name, entry.engine
+        ));
+    }
+    std::thread::Builder::new()
+        .name("download".into())
+        .spawn(move || download::fetch(&app, &entry.file, &entry.url))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn reveal_models_dir() -> Result<(), String> {
+    let dir = config::models_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::process::Command::new("explorer")
+        .arg(dir)
+        .spawn()
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -167,48 +210,52 @@ fn show_settings(app: &AppHandle) {
 // --- engine ---------------------------------------------------------------
 
 fn engine_loop(app: AppHandle) -> Result<()> {
-    let mut cfg = config::load();
-    // Held as an Option so it can be dropped and rebuilt: that is what makes
-    // "preload" and "unload when idle" real controls rather than stored values
-    // nothing ever reads.
-    let mut engine: Option<stt::Engine> = None;
-    let mut loaded_model = String::new();
-    let mut last_used = Instant::now();
-
-    if cfg.preload_model {
-        engine = Some(stt::Engine::new(&model_path(&cfg.model)?, cfg.threads)?);
-        loaded_model = cfg.model.clone();
-    }
-
+    let cfg = config::load();
     let recorder = audio::Recorder::new(cfg.microphone.as_deref())?;
     hotkey::set_binding(cfg.hotkey.vk, cfg.hotkey.mods());
     let events = hotkey::spawn()?;
+    let worker = transcribe::spawn()?;
 
     let overlay = app
         .get_webview_window("overlay")
         .ok_or_else(|| anyhow!("overlay window missing"))?;
 
-    // Send the configured treatment once, so the overlay starts in the right
-    // one rather than defaulting to ribbons until the first settings change.
     let mut boot = State::new("idle", "");
     boot.visual = Some(cfg.visual.clone());
     boot.model = Some(cfg.model.clone());
     emit(&app, boot);
 
+    if cfg.preload_model {
+        // A second of silence: cheap to decode, and it forces the model load
+        // now rather than in the middle of the first real dictation.
+        let _ = worker.jobs.send(transcribe::Job::Transcribe {
+            pcm: vec![0.0; audio::TARGET_RATE as usize],
+            utterance: 0,
+            final_pass: false,
+        });
+    }
+
     log!("ready — hold {} to dictate", hotkey_label(&cfg.hotkey));
 
+    let mut utterance: u64 = 0;
     let mut listening = false;
     let mut mark = 0u64;
     let mut started = Instant::now();
+    let mut last_partial = Instant::now();
+    let mut last_used = Instant::now();
     let mut hide_at: Option<Instant> = None;
+    let mut unloaded = false;
 
     loop {
         match events.recv_timeout(TICK) {
             Ok(hotkey::Event::Pressed) => {
+                utterance += 1;
                 mark = recorder.mark();
                 started = Instant::now();
+                last_partial = Instant::now();
                 listening = true;
                 hide_at = None;
+                unloaded = false;
 
                 // Both fields get logged: writing app-routing rules later means
                 // knowing what the exe and title actually look like.
@@ -217,7 +264,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
 
                 let _ = overlay.show();
                 let mut s = State::new("listening", "LISTENING");
-                s.model = Some(cfg.model.clone());
+                s.model = Some(config::load().model);
                 emit(&app, s);
             }
 
@@ -234,73 +281,106 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 }
 
                 emit(&app, State::new("transcribing", "TRANSCRIBING"));
-
-                // Re-read settings each time so a model change in the settings
-                // window takes effect on the next dictation, not the next launch.
-                cfg = config::load();
-                if engine.is_none() || loaded_model != cfg.model {
-                    let path = model_path(&cfg.model)?;
-                    log!("  loading {}", cfg.model);
-                    engine = Some(stt::Engine::new(&path, cfg.threads)?);
-                    loaded_model = cfg.model.clone();
-                }
-                let engine_ref = engine.as_ref().expect("just loaded");
-
                 let pcm = audio::to_16k(&raw, recorder.sample_rate())?;
-                let t0 = Instant::now();
-                let text = engine_ref.transcribe(&pcm)?;
-                let took = t0.elapsed();
-                last_used = Instant::now();
-
-                if text.is_empty() {
-                    log!("  (silence)");
-                    emit(&app, State::new("idle", ""));
-                    let _ = overlay.hide();
-                    continue;
-                }
-
-                log!("  {text}");
-                log!(
-                    "  {:.1}s audio · whisper {}ms · {:.1}x realtime",
-                    held.as_secs_f32(),
-                    took.as_millis(),
-                    held.as_secs_f32() / took.as_secs_f32().max(0.001)
-                );
-
-                let mut done = State::new("transcribing", "INSERTED");
-                done.text = Some(text.clone());
-                emit(&app, done);
-
-                if let Err(e) = inject::insert(&text) {
-                    log!("  insert failed: {e}");
-                }
-
-                hide_at = Some(Instant::now() + LINGER);
+                let _ = worker.jobs.send(transcribe::Job::Transcribe {
+                    pcm,
+                    utterance,
+                    final_pass: true,
+                });
             }
 
-            Err(RecvTimeoutError::Timeout) => {
-                if listening {
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+
+        // Interim passes. Kicked off from here rather than on a timer thread so
+        // there is only ever one place deciding what the engine is doing.
+        if listening && last_partial.elapsed() >= PARTIAL_EVERY {
+            let raw = recorder.take_since(mark);
+            let secs = raw.len() as f32 / recorder.sample_rate() as f32;
+            if secs >= PARTIAL_MIN_SECS {
+                last_partial = Instant::now();
+                if let Ok(pcm) = audio::to_16k(&raw, recorder.sample_rate()) {
+                    let _ = worker.jobs.send(transcribe::Job::Transcribe {
+                        pcm,
+                        utterance,
+                        final_pass: false,
+                    });
+                }
+            }
+        }
+
+        // Results. Drained rather than blocked on, so the visualiser keeps
+        // updating while a pass is in flight.
+        while let Ok(done) = worker.done.try_recv() {
+            match done {
+                transcribe::Done::Partial { text, utterance: g } => {
+                    // A pass from a previous utterance finishing late must not
+                    // overwrite the current one.
+                    if g != utterance || !listening || text.is_empty() {
+                        continue;
+                    }
                     let mut s = State::new("listening", "LISTENING");
                     s.bands = recorder.bands();
                     s.elapsed = started.elapsed().as_secs_f32();
+                    s.text = Some(text);
+                    s.partial = true;
                     emit(&app, s);
-                } else if hide_at.is_some_and(|t| Instant::now() >= t) {
-                    hide_at = None;
+                }
+
+                transcribe::Done::Final { text, utterance: g, took } => {
+                    if g != utterance {
+                        continue;
+                    }
+                    last_used = Instant::now();
+                    if text.is_empty() {
+                        log!("  (silence)");
+                        emit(&app, State::new("idle", ""));
+                        let _ = overlay.hide();
+                        continue;
+                    }
+                    let held = started.elapsed();
+                    log!("  {text}");
+                    log!(
+                        "  {:.1}s audio · whisper {}ms · {:.1}x realtime",
+                        held.as_secs_f32(),
+                        took.as_millis(),
+                        held.as_secs_f32() / took.as_secs_f32().max(0.001)
+                    );
+
+                    let mut s = State::new("transcribing", "INSERTED");
+                    s.text = Some(text.clone());
+                    emit(&app, s);
+
+                    if let Err(e) = inject::insert(&text) {
+                        log!("  insert failed: {e}");
+                    }
+                    hide_at = Some(Instant::now() + LINGER);
+                }
+
+                transcribe::Done::Failed(e) => {
+                    log!("  transcription failed: {e}");
                     emit(&app, State::new("idle", ""));
                     let _ = overlay.hide();
-                } else if engine.is_some()
-                    && cfg.model_idle_eject_secs > 0
-                    && last_used.elapsed().as_secs() >= cfg.model_idle_eject_secs
-                {
-                    // Dropping the context frees the model's memory; the next
-                    // dictation pays the reload.
-                    engine = None;
-                    loaded_model.clear();
-                    log!("model unloaded after {}s idle", cfg.model_idle_eject_secs);
                 }
             }
+        }
 
-            Err(RecvTimeoutError::Disconnected) => break,
+        if listening {
+            let mut s = State::new("listening", "LISTENING");
+            s.bands = recorder.bands();
+            s.elapsed = started.elapsed().as_secs_f32();
+            emit(&app, s);
+        } else if hide_at.is_some_and(|t| Instant::now() >= t) {
+            hide_at = None;
+            emit(&app, State::new("idle", ""));
+            let _ = overlay.hide();
+        } else if !unloaded {
+            let secs = config::load().model_idle_eject_secs;
+            if secs > 0 && last_used.elapsed().as_secs() >= secs {
+                unloaded = true;
+                let _ = worker.jobs.send(transcribe::Job::Unload);
+            }
         }
     }
     Ok(())
@@ -311,28 +391,39 @@ fn engine_loop(app: AppHandle) -> Result<()> {
 fn overlay_demo(app: AppHandle, visual: &str) {
     let Some(win) = app.get_webview_window("overlay") else { return };
     let _ = win.show();
-    log!("overlay demo ({visual}) — listening 8s, then transcript 6s");
+    log!("overlay demo ({visual}) — listening 10s, then transcript 6s");
 
     let mut s = State::new("idle", "");
     s.visual = Some(visual.to_string());
+    s.model = Some(config::load().model);
     emit(&app, s);
     std::thread::sleep(Duration::from_millis(120));
 
-    let mut lead = State::new("listening", "LISTENING");
-    lead.model = Some(config::load().model);
-    emit(&app, lead);
+    const WORDS: &[&str] = &[
+        "Thanks", "for", "sending", "the", "deck", "over", "—", "I", "read",
+        "the", "pricing", "section", "this", "morning",
+    ];
 
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(8) {
+    let mut shown = 0usize;
+    while start.elapsed() < Duration::from_secs(10) {
         let t = start.elapsed().as_secs_f32();
         let mut s = State::new("listening", "LISTENING");
-        // Bands sweep at different rates so the treatment is visibly
-        // frequency-reactive rather than one level moving everything together.
+        // Gated bursts rather than a smooth sweep, so the noise displacement
+        // and per-band brightness are actually visible.
+        let gate = (t * 0.9).sin().max(0.0).powf(0.6);
         for (i, b) in s.bands.iter_mut().enumerate() {
-            let f = 1.3 + i as f32 * 0.55;
-            *b = (0.5 + 0.5 * (t * f + i as f32).sin()).powf(1.6);
+            let f = 1.1 + i as f32 * 0.83;
+            *b = (0.5 + 0.5 * (t * f + i as f32 * 2.3).sin()).powf(1.5) * gate;
         }
         s.elapsed = t;
+        // Words accumulate the way interim passes deliver them.
+        let want = ((t / 10.0) * WORDS.len() as f32) as usize;
+        if want > shown {
+            shown = want.min(WORDS.len());
+            s.text = Some(WORDS[..shown].join(" "));
+            s.partial = true;
+        }
         emit(&app, s);
         std::thread::sleep(TICK);
     }
@@ -371,12 +462,48 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // `verba --download <name-fragment>` — headless model fetch, and the way
+    // the download path gets exercised without a window.
+    if arg1 == Some("--download") {
+        let want = args.get(2).map(String::as_str).unwrap_or("");
+        let Some(m) = config::catalogue()
+            .into_iter()
+            .find(|m| m.engine == "whisper.cpp" && m.file.contains(want))
+        else {
+            log!("no whisper.cpp model matching '{want}'. Options:");
+            for m in config::catalogue().iter().filter(|m| m.engine == "whisper.cpp") {
+                log!("  {} ({} MB)", m.file, m.size_mb);
+            }
+            return Ok(());
+        };
+        log!("fetching {} ({} MB)", m.file, m.size_mb);
+        let mut last_pct = u64::MAX;
+        return match download::fetch_with(&m.file, &m.url, |got, total| {
+            let pct = if total > 0 { got * 100 / total } else { 0 };
+            if pct != last_pct {
+                last_pct = pct;
+                log!("  {pct}%  {} / {} MB", got / 1048576, total / 1048576);
+            }
+        }) {
+            Ok(p) => {
+                log!("saved to {}", p.display());
+                Ok(())
+            }
+            Err(e) => Err(anyhow!("download failed: {e}")),
+        };
+    }
+
     let demo = (arg1 == Some("--overlay-test"))
         .then(|| args.get(2).cloned().unwrap_or_else(|| config::load().visual));
     let open_settings = arg1 == Some("--settings");
 
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_state, set_config])
+        .invoke_handler(tauri::generate_handler![
+            get_state,
+            set_config,
+            download_model,
+            reveal_models_dir
+        ])
         .setup(move |app| {
             let overlay_win = app
                 .get_webview_window("overlay")
@@ -389,7 +516,7 @@ fn main() -> Result<()> {
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Verba — hold Ctrl+Shift+Space to dictate")
+                .tooltip("Verba — hold your hotkey to dictate")
                 .menu(&menu)
                 // Left click opens Settings; the menu stays on right click.
                 .show_menu_on_left_click(false)
@@ -410,8 +537,8 @@ fn main() -> Result<()> {
             }
 
             let handle = app.handle().clone();
-            // The audio stream is !Send on Windows, so the engine owns everything
-            // on one thread rather than sharing it.
+            // The audio stream is !Send on Windows, so the engine owns the
+            // recorder and hotkey receiver together on one thread.
             std::thread::Builder::new().name("engine".into()).spawn(move || {
                 match &demo {
                     Some(v) => overlay_demo(handle, v),

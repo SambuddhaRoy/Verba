@@ -25,7 +25,12 @@
 
 <div id="stage-ribbons" class="stage">
   <div id="glass">
-    <div id="rim"></div>
+    <!-- Soft field, then the frosting that blurs it. backdrop-filter samples
+         what is painted below it in the same stacking context, so the blur
+         needs something of its own to work on — a transparent overlay window
+         has no desktop behind it to sample. -->
+    <div id="field"></div>
+    <div id="frost"></div>
 
     <div id="wave">
       <svg viewBox="0 0 1000 160" preserveAspectRatio="none">
