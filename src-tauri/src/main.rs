@@ -10,6 +10,7 @@
 #[macro_use]
 mod log;
 
+mod accent;
 mod audio;
 mod capture;
 mod config;
@@ -133,6 +134,7 @@ struct SettingsState {
     log_path: String,
     config_path: String,
     models_dir: String,
+    accent: accent::Accent,
 }
 
 #[tauri::command]
@@ -151,6 +153,7 @@ fn get_state() -> SettingsState {
         log_path: log::path().display().to_string(),
         config_path: config::path().display().to_string(),
         models_dir: config::models_dir().display().to_string(),
+        accent: accent::detect(),
     }
 }
 
@@ -681,6 +684,19 @@ fn main() -> Result<()> {
             transcribe::Done::Failed(e) => Err(anyhow!("{e}")),
             _ => Err(anyhow!("unexpected reply")),
         };
+    }
+
+    // `verba --accent` — what the settings window will paint with. UISettings
+    // is a WinRT call and can fail without an apartment, so this shows whether
+    // the real source answered or the registry fallback did.
+    if arg1 == Some("--accent") {
+        let a = accent::detect();
+        log!("base   {}   rgb({})", a.base, a.rgb);
+        log!("light1 {}", a.light1);
+        log!("light2 {}  <- accent text on dark", a.light2);
+        log!("light3 {}", a.light3);
+        log!("dark1  {}", a.dark1);
+        return Ok(());
     }
 
     // `verba --capture-test` — grab the region the overlay covers and report
