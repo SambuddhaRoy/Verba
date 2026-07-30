@@ -11,6 +11,7 @@
 mod log;
 
 mod audio;
+mod capture;
 mod config;
 mod download;
 mod fasterwhisper;
@@ -30,6 +31,7 @@ use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
+use windows::Win32::Foundation::HWND;
 
 const EVENT: &str = "verba:state";
 /// Below this, it's a stray keypress rather than speech.
@@ -59,6 +61,18 @@ struct State {
     #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<String>,
     gpu: bool,
+    /// Downscaled screenshot of what sits behind the overlay, base64 RGBA.
+    /// Sent once when listening starts — it is tens of kilobytes, not
+    /// something to put on the 30fps tick.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backdrop: Option<Backdrop>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct Backdrop {
+    width: u32,
+    height: u32,
+    rgba: String,
 }
 
 impl State {
@@ -73,6 +87,7 @@ impl State {
             visual: None,
             model: None,
             gpu: cfg!(feature = "gpu-vulkan"),
+            backdrop: None,
         }
     }
 }
@@ -296,9 +311,21 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 let info = focus::foreground();
                 log!("● listening   [{}] {}", info.exe, info.title);
 
-                let _ = overlay.show();
+                // Capture before showing, so the shot does not contain the
+                // overlay itself — otherwise the panel blurs a picture of
+                // its own previous frame.
                 let mut s = State::new("listening", "LISTENING");
                 s.model = Some(config::load().model);
+                if let Ok(h) = overlay.hwnd() {
+                    if let Some(shot) = capture::behind(HWND(h.0 as _)) {
+                        s.backdrop = Some(Backdrop {
+                            width: shot.width,
+                            height: shot.height,
+                            rgba: capture::base64(&shot.rgba),
+                        });
+                    }
+                }
+                let _ = overlay.show();
                 emit(&app, s);
             }
 
@@ -518,6 +545,35 @@ fn main() -> Result<()> {
             let mean = bands.iter().sum::<f32>() / bands.len() as f32;
             log!("[{bar}] peak {peak:.2} mean {mean:.2}");
             std::thread::sleep(Duration::from_millis(120));
+        }
+        return Ok(());
+    }
+
+    // `verba --capture-test` — grab the region the overlay covers and report
+    // what came back. A capture that silently returns black looks exactly like
+    // a blur that isn't working.
+    if arg1 == Some("--capture-test") {
+        match capture::screen_region(0, 0, 760, 420) {
+            Some(shot) => {
+                let px = shot.rgba.len() / 4;
+                let mut min = 255u8;
+                let mut max = 0u8;
+                let mut sum = 0u64;
+                for c in shot.rgba.chunks_exact(4) {
+                    let lum = ((c[0] as u32 * 3 + c[1] as u32 * 6 + c[2] as u32) / 10) as u8;
+                    min = min.min(lum);
+                    max = max.max(lum);
+                    sum += lum as u64;
+                }
+                log!("captured {}x{} ({px} px)", shot.width, shot.height);
+                log!("luminance min {min} max {max} mean {}", sum / px.max(1) as u64);
+                log!(
+                    "base64 {} chars — {}",
+                    capture::base64(&shot.rgba).len(),
+                    if max > min { "real image" } else { "FLAT: capture returned nothing" }
+                );
+            }
+            None => log!("capture failed"),
         }
         return Ok(());
     }
