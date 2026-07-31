@@ -72,6 +72,124 @@ pub fn engines() -> Vec<EngineInfo> {
     .collect()
 }
 
+/// A formatting treatment applied to a finished transcript.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct Mode {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// Sent to the local model as the system prompt when `llm` is on.
+    pub instructions: String,
+    /// Off means the deterministic rules alone, which cost nothing and never
+    /// invent words. Worth defaulting to for anything where fidelity matters
+    /// more than polish.
+    pub llm: bool,
+    pub strip_fillers: bool,
+    pub spoken_punctuation: bool,
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            description: String::new(),
+            instructions: String::new(),
+            llm: false,
+            strip_fillers: true,
+            spoken_punctuation: true,
+        }
+    }
+}
+
+/// Route a mode by which application has focus.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct AppRule {
+    pub mode: String,
+    /// Executable names, matched case-insensitively and exactly.
+    pub exe: Vec<String>,
+    /// Optional extra condition on the window title, matched as a
+    /// case-insensitive substring. Plain substring rather than a regex: it
+    /// covers "compose" and "re:" without a dependency, and a rule nobody can
+    /// read is worse than one that matches slightly too much.
+    pub title: Option<String>,
+}
+
+fn default_modes() -> Vec<Mode> {
+    vec![
+        Mode {
+            id: "raw".into(),
+            name: "Raw".into(),
+            description: "No model pass. Punctuation and filler cleanup only.".into(),
+            llm: false,
+            ..Default::default()
+        },
+        Mode {
+            id: "email".into(),
+            name: "Email".into(),
+            description: "Clean prose, no filler.".into(),
+            instructions: "Rewrite this dictation as a short, clear email body. \
+                           Keep the speaker's voice and level of formality. Never \
+                           invent facts, names, numbers or commitments that are not \
+                           present. Do not add a greeting or sign-off unless one was \
+                           dictated. Output only the rewritten text."
+                .into(),
+            llm: true,
+            ..Default::default()
+        },
+        Mode {
+            id: "notes".into(),
+            name: "Notes".into(),
+            description: "Bulleted and terse; keeps names and numbers.".into(),
+            instructions: "Turn this dictation into terse bullet points. Preserve every \
+                           name, number, date and technical term exactly. Do not add \
+                           items that were not said. Output only the bullets."
+                .into(),
+            llm: true,
+            ..Default::default()
+        },
+        Mode {
+            id: "code".into(),
+            name: "Code".into(),
+            description: "Identifiers verbatim; spoken symbols become syntax.".into(),
+            instructions: "This dictation describes code. Keep every identifier exactly \
+                           as spoken, including casing. Convert spoken symbols to their \
+                           syntax. Do not explain, do not add code that was not \
+                           described. Output only the result."
+                .into(),
+            llm: true,
+            // Fillers are stripped, but spoken punctuation is left alone: a
+            // developer saying "dot" or "colon" usually means the character,
+            // and Stage 1 substituting it first would double up with the model.
+            spoken_punctuation: false,
+            ..Default::default()
+        },
+    ]
+}
+
+fn default_rules() -> Vec<AppRule> {
+    vec![
+        AppRule {
+            mode: "code".into(),
+            exe: vec!["Code.exe".into(), "devenv.exe".into(), "idea64.exe".into(),
+                      "pycharm64.exe".into(), "rustrover64.exe".into(), "sublime_text.exe".into()],
+            title: None,
+        },
+        AppRule {
+            mode: "email".into(),
+            exe: vec!["olk.exe".into(), "OUTLOOK.EXE".into(), "thunderbird.exe".into()],
+            title: None,
+        },
+        AppRule {
+            mode: "notes".into(),
+            exe: vec!["Obsidian.exe".into(), "Notion.exe".into(), "onenote.exe".into()],
+            title: None,
+        },
+    ]
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Config {
@@ -94,6 +212,23 @@ pub struct Config {
     pub threads: Option<i32>,
     pub use_gpu: bool,
     pub hotkey: Hotkey,
+
+    // --- formatting -------------------------------------------------------
+    /// Used when no app rule matches.
+    pub default_mode: String,
+    pub modes: Vec<Mode>,
+    /// First match wins, so more specific rules belong earlier.
+    pub rules: Vec<AppRule>,
+    /// Terms to fix the casing of, or `spoken => written` pairs for words the
+    /// recogniser reliably mangles.
+    pub vocabulary: Vec<String>,
+    /// Ollama endpoint and model for the rewrite pass.
+    pub llm_url: String,
+    pub llm_model: String,
+    /// Words dropped before any model sees the text. Deliberately short and
+    /// unambiguous — "like" and "so" are real words far more often than they
+    /// are filler, and stripping them silently corrupts meaning.
+    pub fillers: Vec<String>,
 }
 
 impl Default for Config {
@@ -113,7 +248,47 @@ impl Default for Config {
             threads: None,
             use_gpu: true,
             hotkey: Hotkey::default(),
+
+            default_mode: "raw".into(),
+            modes: default_modes(),
+            rules: default_rules(),
+            vocabulary: Vec::new(),
+            llm_url: "http://127.0.0.1:11434".into(),
+            llm_model: "qwen3.5:9b".into(),
+            fillers: ["um", "uh", "erm", "uhm", "hmm", "mhm"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         }
+    }
+}
+
+impl Config {
+    pub fn mode(&self, id: &str) -> Option<&Mode> {
+        self.modes.iter().find(|m| m.id == id)
+    }
+
+    /// Which mode applies to the app that had focus, first matching rule wins.
+    pub fn mode_for(&self, exe: &str, title: &str) -> &Mode {
+        let matched = self.rules.iter().find(|r| {
+            let exe_hit = r.exe.iter().any(|e| e.eq_ignore_ascii_case(exe));
+            let title_hit = match &r.title {
+                None => true,
+                Some(t) => title.to_lowercase().contains(&t.to_lowercase()),
+            };
+            exe_hit && title_hit
+        });
+
+        matched
+            .and_then(|r| self.mode(&r.mode))
+            .or_else(|| self.mode(&self.default_mode))
+            // A config naming a mode that no longer exists must still dictate;
+            // falling back to the first defined mode beats refusing to insert.
+            .or_else(|| self.modes.first())
+            .unwrap_or_else(|| {
+                static RAW: std::sync::OnceLock<Mode> = std::sync::OnceLock::new();
+                RAW.get_or_init(|| Mode { id: "raw".into(), name: "Raw".into(), ..Default::default() })
+            })
     }
 }
 

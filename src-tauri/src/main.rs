@@ -21,7 +21,9 @@ mod focus;
 mod hardware;
 mod hotkey;
 mod inject;
+mod llm;
 mod overlay;
+mod pipeline;
 mod parakeet;
 mod startup;
 mod stt;
@@ -68,6 +70,9 @@ struct State {
     /// Shown in the overlay's meta row. Sent on state changes, not every tick.
     #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<String>,
+    /// Formatting mode that produced the inserted text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mode: Option<String>,
     gpu: bool,
     /// Downscaled screenshot of what sits behind the overlay, base64 RGBA.
     /// Sent once when listening starts — it is tens of kilobytes, not
@@ -94,6 +99,7 @@ impl State {
             partial: false,
             visual: None,
             model: None,
+            mode: None,
             gpu: cfg!(feature = "gpu-vulkan"),
             backdrop: None,
         }
@@ -136,6 +142,7 @@ struct SettingsState {
     config_path: String,
     models_dir: String,
     accent: accent::Accent,
+    llm_models: Vec<String>,
 }
 
 #[tauri::command]
@@ -155,6 +162,7 @@ fn get_state() -> SettingsState {
         config_path: config::path().display().to_string(),
         models_dir: config::models_dir().display().to_string(),
         accent: accent::detect(),
+        llm_models: llm::installed_models(&config::load()),
     }
 }
 
@@ -376,6 +384,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
     let mut partial_sent: Option<Instant> = None;
     let mut hide_at: Option<Instant> = None;
     let mut unloaded = false;
+    let mut target = focus::App::default();
 
     loop {
         match events.recv_timeout(TICK) {
@@ -393,10 +402,12 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 unloaded = false;
                 cfg = config::load();
 
-                // Both fields get logged: writing app-routing rules later means
-                // knowing what the exe and title actually look like.
-                let info = focus::foreground();
-                log!("● listening   [{}] {}", info.exe, info.title);
+                // Captured at press, not at insert: this is where the user was
+                // looking when they started speaking, and it decides which
+                // formatting mode applies.
+                target = focus::foreground();
+                let mode = cfg.mode_for(&target.exe, &target.title);
+                log!("● listening   [{}] {} → {}", target.exe, target.title, mode.name);
 
                 let mut s = State::new("listening", "LISTENING");
                 s.model = Some(cfg.model.clone());
@@ -503,17 +514,34 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                     let held = started.elapsed();
                     log!("  {text}");
                     log!(
-                        "  {:.1}s audio · whisper {}ms · {:.1}x realtime",
+                        "  {:.1}s audio · decode {}ms · {:.1}x realtime",
                         held.as_secs_f32(),
                         took.as_millis(),
                         held.as_secs_f32() / took.as_secs_f32().max(0.001)
                     );
 
+                    // Formatting runs inline. Raw mode is deterministic and
+                    // effectively free; only a mode with the model pass on can
+                    // block here, and by then the user has stopped speaking so
+                    // there is nothing to keep responsive.
+                    let uses_model = cfg.mode_for(&target.exe, &target.title).llm;
+                    if uses_model {
+                        emit(&app, State::new("transcribing", "FORMATTING"));
+                    }
+                    let t1 = Instant::now();
+                    let (formatted, mode_name) =
+                        pipeline::run(&text, &cfg, &target.exe, &target.title);
+                    if uses_model {
+                        log!("  {mode_name} · {}ms", t1.elapsed().as_millis());
+                        log!("  {formatted}");
+                    }
+
                     let mut s = State::new("transcribing", "INSERTED");
-                    s.text = Some(text.clone());
+                    s.text = Some(formatted.clone());
+                    s.mode = Some(mode_name);
                     emit(&app, s);
 
-                    if let Err(e) = inject::insert(&text) {
+                    if let Err(e) = inject::insert(&formatted) {
                         log!("  insert failed: {e}");
                     }
                     hide_at = Some(Instant::now() + LINGER);
@@ -631,6 +659,33 @@ fn main() -> Result<()> {
         }
         inject::insert(text)?;
         log!("injected {} chars", text.chars().count());
+        return Ok(());
+    }
+
+    // `verba --format "<text>" [exe] [title]` — run the formatting pipeline on
+    // text, as if it had been dictated into that app. Exercises mode routing,
+    // the deterministic rules and the model pass without a microphone.
+    if arg1 == Some("--format") {
+        let Some(text) = args.get(2) else {
+            return Err(anyhow!("usage: verba --format \"<text>\" [exe] [window title]"));
+        };
+        let cfg = config::load();
+        let exe = args.get(3).cloned().unwrap_or_default();
+        let title = args.get(4).cloned().unwrap_or_default();
+        let mode = cfg.mode_for(&exe, &title);
+        log!(
+            "app   [{}] {}\nmode  {} (model pass: {})",
+            if exe.is_empty() { "none" } else { &exe },
+            title,
+            mode.name,
+            if mode.llm { cfg.llm_model.as_str() } else { "off" }
+        );
+        log!("\nraw       {text}");
+        log!("cleaned   {}", pipeline::clean(text, &cfg, mode));
+        let t0 = Instant::now();
+        let (out, label) = pipeline::run(text, &cfg, &exe, &title);
+        log!("inserted  {out}");
+        log!("\n{label} in {}ms", t0.elapsed().as_millis());
         return Ok(());
     }
 
