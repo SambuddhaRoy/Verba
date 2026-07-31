@@ -15,6 +15,11 @@ pub struct Progress {
     pub received: u64,
     pub total: u64,
     pub done: bool,
+    /// "downloading" or "extracting". Without it the frontend could only infer
+    /// state from the byte counts, and the post-download notification — which
+    /// carries no counts — rendered as an empty bar reading "0 / 0 MB", which
+    /// looks like the transfer restarted.
+    pub stage: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -109,23 +114,36 @@ where
     };
 
     let outcome = fetch_with(saved_as, url, |received, total| {
-        emit(Progress { file: id.into(), received, total, done: false, error: None });
+        emit(Progress {
+            file: id.into(), received, total, done: false,
+            stage: "downloading", error: None,
+        });
     })
     .and_then(|path| {
         // Unpacking a few hundred megabytes is not instant; say so rather than
-        // leaving the bar sitting full.
-        emit(Progress { file: id.into(), received: 0, total: 0, done: false, error: None });
+        // leaving the bar sitting full. The bar holds at 100% and the label
+        // changes, instead of resetting to zero.
+        emit(Progress {
+            file: id.into(), received: 1, total: 1, done: false,
+            stage: "extracting", error: None,
+        });
         finish(&path).map_err(|e| e.to_string()).map(|()| path)
     });
 
     match outcome {
         Ok(path) => {
             crate::log!("installed {id} -> {}", path.display());
-            emit(Progress { file: id.into(), received: 0, total: 0, done: true, error: None });
+            emit(Progress {
+                file: id.into(), received: 1, total: 1, done: true,
+                stage: "done", error: None,
+            });
         }
         Err(e) => {
             crate::log!("download failed for {id}: {e}");
-            emit(Progress { file: id.into(), received: 0, total: 0, done: true, error: Some(e) });
+            emit(Progress {
+                file: id.into(), received: 0, total: 0, done: true,
+                stage: "failed", error: Some(e),
+            });
         }
     }
 }

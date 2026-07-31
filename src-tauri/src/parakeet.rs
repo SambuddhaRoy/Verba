@@ -79,14 +79,20 @@ pub fn extract(archive: &std::path::Path) -> Result<()> {
         bail!("Parakeet engine is not installed yet");
     }
     let dest = crate::config::models_dir();
-    let code = format!(
-        // filter='data' refuses absolute paths and parent traversal in member
-        // names, so a hostile archive cannot write outside the destination.
-        "import tarfile; tarfile.open(r'{}').extractall(r'{}', filter='data')",
-        archive.display(),
-        dest.display()
-    );
-    let out = Command::new(venv_python()).args(["-c", &code]).output()?;
+    // Paths go through argv, never into the source text. Interpolating them
+    // into an r'...' literal broke outright on any path containing an
+    // apostrophe — a Windows account named O'Brien was enough — and the same
+    // hole let a crafted path close the literal and run arbitrary Python.
+    // filter='data' refuses absolute paths and parent traversal in member
+    // names, so a hostile archive cannot write outside the destination.
+    const CODE: &str = "import sys, tarfile; \
+                        tarfile.open(sys.argv[1]).extractall(sys.argv[2], filter='data')";
+    let out = Command::new(venv_python())
+        .arg("-c")
+        .arg(CODE)
+        .arg(archive)
+        .arg(&dest)
+        .output()?;
     if !out.status.success() {
         bail!("extract failed: {}", String::from_utf8_lossy(&out.stderr));
     }
@@ -108,7 +114,7 @@ impl Sidecar {
         if !is_installed() {
             bail!("Parakeet engine is not installed yet");
         }
-        let dir = crate::config::models_dir().join(model);
+        let dir = crate::config::models_dir().join(crate::config::safe_model_name(model)?);
         if !dir.join("tokens.txt").is_file() {
             bail!("{model} is not downloaded yet");
         }
@@ -129,6 +135,8 @@ impl Sidecar {
         }
 
         let mut child = cmd.spawn()?;
+        // Tie it to the process job so a hard exit cannot orphan it.
+        crate::childguard::adopt(child.id());
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?);
 

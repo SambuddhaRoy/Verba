@@ -62,7 +62,9 @@ pub enum Job {
 pub enum Done {
     Partial { text: String, utterance: u64 },
     Final { text: String, utterance: u64, took: Duration },
-    Failed(String),
+    /// Carries the utterance so a late failure from a finished dictation can be
+    /// told apart from one affecting the dictation in progress.
+    Failed { error: String, utterance: u64 },
 }
 
 pub struct Worker {
@@ -97,8 +99,13 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>) {
         // only the newest audio is worth transcribing — except that a final
         // pass outranks any interim one, whenever it arrived.
         let mut job = first;
+        let mut deferred_unload = false;
         loop {
             match jobs.try_recv() {
+                // An unload must never displace queued audio. Letting it
+                // overwrite `job` dropped the pass outright, and since nothing
+                // replies the caller waits for a Done that never comes.
+                Ok(Job::Unload) => deferred_unload = true,
                 Ok(next) => {
                     let holding_final =
                         matches!(job, Job::Transcribe { final_pass: true, .. });
@@ -112,6 +119,10 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>) {
                 Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
             }
         }
+
+        // Applied after the job below completes, so the model outlives the work
+        // that still needs it.
+        let unload_after = deferred_unload;
 
         let (pcm, utterance, final_pass) = match job {
             Job::Unload => {
@@ -137,7 +148,7 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>) {
                     loaded = want;
                 }
                 Err(e) => {
-                    let _ = done.send(Done::Failed(e.to_string()));
+                    let _ = done.send(Done::Failed { error: e.to_string(), utterance });
                     continue;
                 }
             }
@@ -161,8 +172,14 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>) {
                 });
             }
             Err(e) => {
-                let _ = done.send(Done::Failed(e.to_string()));
+                let _ = done.send(Done::Failed { error: e.to_string(), utterance });
             }
+        }
+
+        if unload_after {
+            engine = None;
+            loaded = (String::new(), String::new());
+            crate::log!("model unloaded");
         }
     }
 }
