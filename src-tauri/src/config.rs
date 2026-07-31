@@ -153,6 +153,24 @@ pub fn save(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Reject a model id that is anything other than a plain name.
+///
+/// `Path::join` with an absolute argument discards the base entirely, so an
+/// unvalidated id from config.json could point the engine at any directory on
+/// the machine. Every caller resolves the id against `models_dir`, so the check
+/// belongs here rather than being repeated at each of them.
+pub fn safe_model_name(name: &str) -> Result<&str> {
+    let bad = name.is_empty()
+        || name.contains(['/', '\\', ':'])
+        || name.split('.').any(|seg| seg == "" && name.starts_with('.'))
+        || name == ".."
+        || name.starts_with("..");
+    if bad {
+        anyhow::bail!("invalid model name: {name:?}");
+    }
+    Ok(name)
+}
+
 /// Where model files live: next to the .exe first, then the repo layout.
 pub fn models_dir() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
@@ -261,6 +279,26 @@ mod tests {
 
     /// A BOM on the config used to reset every setting to default with nothing
     /// but a log line, which is indistinguishable from the app ignoring you.
+    /// `Path::join` with an absolute argument discards the base, so a model id
+    /// carrying a separator escapes the models directory entirely.
+    #[test]
+    fn model_names_with_separators_are_rejected() {
+        assert!(safe_model_name("ggml-small.en-q5_1.bin").is_ok());
+        assert!(safe_model_name("sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8").is_ok());
+
+        for bad in [
+            "",
+            "..",
+            "../secrets",
+            r"..\secrets",
+            r"C:\Windows\System32",
+            "sub/dir",
+            r"sub\dir",
+        ] {
+            assert!(safe_model_name(bad).is_err(), "should reject {bad:?}");
+        }
+    }
+
     #[test]
     fn config_parses_with_and_without_bom() {
         let json = r#"{"engine":"parakeet","model":"x"}"#;

@@ -276,11 +276,11 @@ impl Recorder {
     /// Per-band energy of the most recent audio, one value per ribbon.
     pub fn bands(&self) -> [f32; BANDS] {
         let tail: Vec<f32> = {
-            let r = self.ring.lock().unwrap();
+            let r = lock(&self.ring);
             let skip = r.buf.len().saturating_sub(FFT_SIZE);
             r.buf.iter().skip(skip).copied().collect()
         };
-        self.analyzer.lock().unwrap().analyse(&tail)
+        lock(&self.analyzer).analyse(&tail)
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -290,14 +290,23 @@ impl Recorder {
     /// Absolute index to start from, reaching `PREROLL_MS` into the past.
     pub fn mark(&self) -> u64 {
         let preroll = (self.sample_rate as u64 * PREROLL_MS as u64) / 1000;
-        let r = self.ring.lock().unwrap();
-        r.written.saturating_sub(preroll)
+        lock(&self.ring).written.saturating_sub(preroll)
     }
 
     pub fn take_since(&self, abs: u64) -> Vec<f32> {
-        self.ring.lock().unwrap().since(abs)
+        lock(&self.ring).since(abs)
     }
+}
 
+/// Take a lock, recovering from poisoning rather than propagating a panic.
+///
+/// The audio callback already tolerates a poisoned ring; these used to
+/// `.unwrap()`, so a panic anywhere under the lock would kill the engine
+/// thread while Tauri kept running — the app looks alive with the tray icon
+/// present, and dictation is permanently dead with nothing in the log.
+/// Stale samples are a far better outcome than a silently dead hotkey.
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Resample to 16kHz mono for whisper.
@@ -306,6 +315,11 @@ impl Recorder {
 /// aliases high-frequency content down into the speech band, which measurably hurts
 /// recognition. Costs one dependency and about 20 lines.
 pub fn to_16k(input: &[f32], from_rate: u32) -> Result<Vec<f32>> {
+    // Checked before it reaches the capacity calculation below, which divides
+    // by it. A WAV whose fmt chunk declares rate 0 would otherwise panic.
+    if from_rate == 0 {
+        return Err(anyhow!("source sample rate is zero"));
+    }
     if from_rate == TARGET_RATE {
         return Ok(input.to_vec());
     }

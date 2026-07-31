@@ -105,6 +105,8 @@ impl Sidecar {
         }
 
         let mut child = cmd.spawn()?;
+        // Tie it to the process job so a hard exit cannot orphan it.
+        crate::childguard::adopt(child.id());
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?);
 

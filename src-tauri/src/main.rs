@@ -13,6 +13,7 @@ mod log;
 mod accent;
 mod audio;
 mod capture;
+mod childguard;
 mod config;
 mod download;
 mod fasterwhisper;
@@ -111,7 +112,7 @@ pub(crate) fn model_path(file: &str) -> Result<PathBuf> {
     if let Ok(p) = std::env::var("VERBA_MODEL") {
         return Ok(PathBuf::from(p));
     }
-    let p = config::models_dir().join(file);
+    let p = config::models_dir().join(config::safe_model_name(file)?);
     if p.exists() {
         return Ok(p);
     }
@@ -275,7 +276,7 @@ fn reveal_models_dir() -> Result<(), String> {
 fn read_wav(path: &std::path::Path) -> Result<(Vec<f32>, u32)> {
     let b = std::fs::read(path)?;
     if b.len() < 12 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" {
-        bail_wav()?;
+        return Err(anyhow!("not a RIFF/WAVE file"));
     }
     let (mut rate, mut channels, mut bits) = (0u32, 0u16, 0u16);
     let mut pos = 12;
@@ -313,10 +314,6 @@ fn read_wav(path: &std::path::Path) -> Result<(Vec<f32>, u32)> {
     Err(anyhow!("no data chunk in {}", path.display()))
 }
 
-fn bail_wav() -> Result<()> {
-    Err(anyhow!("not a RIFF/WAVE file"))
-}
-
 fn hotkey_label(hk: &config::Hotkey) -> String {
     let mut parts = Vec::new();
     if hk.ctrl { parts.push("Ctrl"); }
@@ -338,7 +335,10 @@ fn show_settings(app: &AppHandle) {
 // --- engine ---------------------------------------------------------------
 
 fn engine_loop(app: AppHandle) -> Result<()> {
-    let cfg = config::load();
+    // Refreshed once per dictation rather than per tick. Re-reading it in the
+    // idle branch meant a file open, read and full JSON parse thirty times a
+    // second for as long as the app was running.
+    let mut cfg = config::load();
     let recorder = audio::Recorder::new(cfg.microphone.as_deref())?;
     hotkey::set_binding(cfg.hotkey.vk, cfg.hotkey.mods());
     let events = hotkey::spawn()?;
@@ -384,27 +384,37 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 mark = recorder.mark();
                 started = Instant::now();
                 last_partial = Instant::now();
+                // The model is about to be needed, so the idle clock restarts
+                // here. Updating it only on a completed pass let the eject fire
+                // in the gap between release and result.
+                last_used = Instant::now();
                 listening = true;
                 hide_at = None;
                 unloaded = false;
+                cfg = config::load();
 
                 // Both fields get logged: writing app-routing rules later means
                 // knowing what the exe and title actually look like.
                 let info = focus::foreground();
                 log!("● listening   [{}] {}", info.exe, info.title);
 
-                // Capture before showing, so the shot does not contain the
-                // overlay itself — otherwise the panel blurs a picture of
-                // its own previous frame.
                 let mut s = State::new("listening", "LISTENING");
-                s.model = Some(config::load().model);
-                if let Ok(h) = overlay.hwnd() {
-                    if let Some(shot) = capture::behind(HWND(h.0 as _)) {
-                        s.backdrop = Some(Backdrop {
-                            width: shot.width,
-                            height: shot.height,
-                            rgba: capture::base64(&shot.rgba),
-                        });
+                s.model = Some(cfg.model.clone());
+                // Only the ribbons panel paints a backdrop; for the other
+                // treatments the capture, the base64 and the 26KB of IPC would
+                // all be discarded.
+                if cfg.visual == "ribbons" {
+                    // Capture before showing, so the shot does not contain the
+                    // overlay itself — otherwise the panel blurs a picture of
+                    // its own previous frame.
+                    if let Ok(h) = overlay.hwnd() {
+                        if let Some(shot) = capture::behind(HWND(h.0 as _)) {
+                            s.backdrop = Some(Backdrop {
+                                width: shot.width,
+                                height: shot.height,
+                                rgba: capture::base64(&shot.rgba),
+                            });
+                        }
                     }
                 }
                 let _ = overlay.show();
@@ -428,6 +438,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
 
                 emit(&app, State::new("transcribing", "TRANSCRIBING"));
                 let pcm = audio::to_16k(&raw, recorder.sample_rate())?;
+                last_used = Instant::now();
                 let _ = worker.jobs.send(transcribe::Job::Transcribe {
                     pcm,
                     utterance,
@@ -460,6 +471,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
 
         // Results. Drained rather than blocked on, so the visualiser keeps
         // updating while a pass is in flight.
+        let mut interim: Option<String> = None;
         while let Ok(done) = worker.done.try_recv() {
             match done {
                 transcribe::Done::Partial { text, utterance: g } => {
@@ -471,12 +483,10 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                     if g != utterance || !listening || text.is_empty() {
                         continue;
                     }
-                    let mut s = State::new("listening", "LISTENING");
-                    s.bands = recorder.bands();
-                    s.elapsed = started.elapsed().as_secs_f32();
-                    s.text = Some(text);
-                    s.partial = true;
-                    emit(&app, s);
+                    // Handed to the state the listening block below already
+                    // builds. Emitting here instead meant a second FFT and a
+                    // second event that the next one immediately overwrote.
+                    interim = Some(text);
                 }
 
                 transcribe::Done::Final { text, utterance: g, took } => {
@@ -509,10 +519,18 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                     hide_at = Some(Instant::now() + LINGER);
                 }
 
-                transcribe::Done::Failed(e) => {
-                    log!("  transcription failed: {e}");
-                    emit(&app, State::new("idle", ""));
-                    let _ = overlay.hide();
+                transcribe::Done::Failed { error, utterance: g } => {
+                    log!("  transcription failed: {error}");
+                    // Clear the in-flight marker, or the `partial_sent.is_none()`
+                    // guard blocks every further interim pass this dictation.
+                    partial_sent = None;
+                    // A failure from a finished utterance, or one from an
+                    // interim pass while the user is still speaking, must not
+                    // tear the overlay down mid-sentence.
+                    if g == utterance && !listening {
+                        emit(&app, State::new("idle", ""));
+                        let _ = overlay.hide();
+                    }
                 }
             }
         }
@@ -521,14 +539,17 @@ fn engine_loop(app: AppHandle) -> Result<()> {
             let mut s = State::new("listening", "LISTENING");
             s.bands = recorder.bands();
             s.elapsed = started.elapsed().as_secs_f32();
+            if let Some(text) = interim {
+                s.text = Some(text);
+                s.partial = true;
+            }
             emit(&app, s);
         } else if hide_at.is_some_and(|t| Instant::now() >= t) {
             hide_at = None;
             emit(&app, State::new("idle", ""));
             let _ = overlay.hide();
-        } else if !unloaded {
-            let secs = config::load().model_idle_eject_secs;
-            if secs > 0 && last_used.elapsed().as_secs() >= secs {
+        } else if !unloaded && cfg.model_idle_eject_secs > 0 {
+            if last_used.elapsed().as_secs() >= cfg.model_idle_eject_secs {
                 unloaded = true;
                 let _ = worker.jobs.send(transcribe::Job::Unload);
             }
@@ -681,7 +702,7 @@ fn main() -> Result<()> {
                 log!("decoded in {}ms (total {}ms incl. load)", took.as_millis(), t0.elapsed().as_millis());
                 Ok(())
             }
-            transcribe::Done::Failed(e) => Err(anyhow!("{e}")),
+            transcribe::Done::Failed { error, .. } => Err(anyhow!("{error}")),
             _ => Err(anyhow!("unexpected reply")),
         };
     }

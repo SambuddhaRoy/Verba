@@ -25,8 +25,9 @@ if (listen) {
     if (!payload.done) {
       const pct = payload.total ? (payload.received / payload.total) * 100 : 0;
       row.querySelector('.dl-fill').style.width = `${pct.toFixed(1)}%`;
-      row.querySelector('.dl-txt').textContent =
-        `${(payload.received / 1048576).toFixed(0)} / ${(payload.total / 1048576).toFixed(0)} MB`;
+      row.querySelector('.dl-txt').textContent = payload.stage === 'extracting'
+        ? 'extracting…'
+        : `${(payload.received / 1048576).toFixed(0)} / ${(payload.total / 1048576).toFixed(0)} MB`;
       return;
     }
 

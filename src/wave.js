@@ -82,11 +82,14 @@ for (let i = 0; i < MIN_SLOTS; i++) {
 const minHistory = new Float32Array(MIN_SLOTS);
 let minHead = 0;
 let minLastPush = 0;
+/// Set when a slice lands, so the bar redraw runs on change rather than per frame.
+let minDirty = true;
 
 function minReset() {
   minHistory.fill(0);
   minHead = 0;
   minLastPush = 0;
+  minDirty = true;
 }
 
 let phase = 'idle';
@@ -352,19 +355,28 @@ function tick(now) {
         minHistory.copyWithin(0, 1);
         minHistory[MIN_SLOTS - 1] = v;
       }
+      minDirty = true;
     }
 
-    for (let i = 0; i < MIN_SLOTS; i++) {
-      // Past slices keep their recorded height; the rest are not drawn at all.
-      minBars[i].style.transform =
-        i < minHead ? `scaleY(${(0.035 + 0.965 * minHistory[i]).toFixed(3)})` : 'scaleY(0)';
+    // Redraw only when the history actually moved. It advances 11 times a
+    // second while this loop runs at the display's refresh rate, so repainting
+    // all 85 bars every frame was ~10,000 style writes per second for data
+    // that changed 11 times.
+    if (minDirty) {
+      minDirty = false;
+      for (let i = 0; i < MIN_SLOTS; i++) {
+        // Past slices keep their recorded height; the rest are not drawn.
+        minBars[i].style.transform =
+          i < minHead ? `scaleY(${(0.035 + 0.965 * minHistory[i]).toFixed(3)})` : 'scaleY(0)';
+      }
+      const x = minHead * MIN_PITCH;
+      el.minCursor.style.left = `${x}px`;
+      el.minDots.style.left = `${x + 7}px`;
+      el.minDots.style.right = '0px';
     }
-    const x = minHead * MIN_PITCH;
-    el.minCursor.style.left = `${x}px`;
+    const title = phase === 'listening' ? 'NEW RECORDING' : 'TRANSCRIBING';
+    if (el.minTitle.textContent !== title) el.minTitle.textContent = title;
     el.minCursor.style.opacity = phase === 'listening' ? '1' : '0';
-    el.minDots.style.left = `${x + 7}px`;
-    el.minDots.style.right = '0px';
-    el.minTitle.textContent = phase === 'listening' ? 'NEW RECORDING' : 'TRANSCRIBING';
 
   } else if (visual === 'ribbons') {
     for (let i = 0; i < RIBBONS.length; i++) {
