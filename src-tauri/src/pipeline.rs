@@ -106,11 +106,56 @@ pub fn clean(raw: &str, cfg: &Config, mode: &Mode) -> String {
             }
         }
 
+        // Recognisers emit the pronoun lowercase about as often as not, and no
+        // English sentence wants it that way.
+        if words[i] == "i" {
+            out.push("I".into());
+            i += 1;
+            continue;
+        }
+        if let Some(rest) = words[i].strip_prefix("i'") {
+            out.push(format!("I'{rest}"));
+            i += 1;
+            continue;
+        }
+
         out.push(words[i].to_string());
         i += 1;
     }
 
     join(&out)
+}
+
+/// Numbers carry the most meaning per token in dictation — prices, dates,
+/// counts, versions — and are the least recoverable if a rewrite drops them.
+fn numbers(s: &str) -> Vec<String> {
+    s.split(|c: char| !c.is_alphanumeric() && c != '.')
+        .filter(|t| t.chars().any(|c| c.is_ascii_digit()))
+        .map(|t| t.trim_matches('.').to_string())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+/// Would accepting this rewrite lose the user's words?
+///
+/// A model that truncates, or silently drops a figure, is worse than no model
+/// at all: the user cannot see what went missing because the original is gone
+/// by the time the text lands. Measured, a 40-word dictation came back from
+/// Notes mode as a single seven-word bullet — this is the guard for that.
+fn survives(original: &str, rewritten: &str) -> Result<(), String> {
+    let before = original.split_whitespace().count();
+    let after = rewritten.split_whitespace().count();
+    // Bullets and tightened prose legitimately shed filler, so the floor is
+    // generous; it is only catching collapse, not compression.
+    if before >= 12 && after * 100 < before * 40 {
+        return Err(format!("dropped {before} words to {after}"));
+    }
+    for n in numbers(original) {
+        if !rewritten.contains(&n) {
+            return Err(format!("lost the figure {n:?}"));
+        }
+    }
+    Ok(())
 }
 
 /// Re-assemble tokens, attaching punctuation and capitalising sentences.
@@ -159,14 +204,23 @@ pub fn run(raw: &str, cfg: &Config, exe: &str, title: &str) -> (String, String) 
         return (cleaned, mode.name.clone());
     }
     match crate::llm::rewrite(cfg, &mode.instructions, &cleaned) {
-        Ok(text) if !text.trim().is_empty() => (text.trim().to_string(), mode.name.clone()),
+        Ok(text) if !text.trim().is_empty() => {
+            let text = text.trim();
+            match survives(&cleaned, text) {
+                Ok(()) => (text.to_string(), mode.name.clone()),
+                Err(why) => {
+                    crate::log!("  rewrite rejected ({why}), inserting cleaned text");
+                    (cleaned, format!("{} (unchanged)", mode.name))
+                }
+            }
+        }
         Ok(_) => {
             crate::log!("  {} returned nothing, inserting cleaned text", cfg.llm_model);
-            (cleaned, mode.name.clone())
+            (cleaned, format!("{} (unchanged)", mode.name))
         }
         Err(e) => {
             crate::log!("  {} pass failed ({e}), inserting cleaned text", cfg.llm_model);
-            (cleaned, format!("{} (raw)", mode.name))
+            (cleaned, format!("{} (unchanged)", mode.name))
         }
     }
 }
@@ -235,6 +289,51 @@ mod tests {
         let code = cfg.mode("code").unwrap().clone();
         // spoken_punctuation is off for code, so "period" survives as a word.
         assert!(clean("self period name", &cfg, &code).contains("period"));
+    }
+
+    #[test]
+    fn the_pronoun_is_capitalised() {
+        let cfg = Config::default();
+        assert_eq!(
+            clean("i think i'll ship it", &cfg, &mode(false)),
+            "I think I'll ship it"
+        );
+        // Only the standalone pronoun — not any word starting with i.
+        assert_eq!(clean("in it", &cfg, &mode(false)), "In it");
+    }
+
+    #[test]
+    fn a_collapsed_rewrite_is_rejected() {
+        let long = "thanks for sending the deck over i went through the pricing \
+                    section this morning and it mostly holds up one thing i would \
+                    change is the enterprise tier";
+        // What Notes mode actually returned before the instructions were fixed.
+        assert!(super::survives(long, "* Thanks for sending the deck over.").is_err());
+        // Genuine tightening is not collapse and must pass.
+        assert!(super::survives(long, long).is_ok());
+    }
+
+    #[test]
+    fn a_rewrite_that_drops_a_figure_is_rejected() {
+        let src = "push the seat minimum to 25 and the price to 4.50";
+        assert!(super::survives(src, "Raise the seat minimum to 25 and the price to 4.50").is_ok());
+        assert!(super::survives(src, "Raise the seat minimum and the price to 4.50").is_err());
+    }
+
+    #[test]
+    fn short_utterances_are_exempt_from_the_length_floor() {
+        // "yes" -> "Yes." is a legitimate rewrite, not a collapse.
+        assert!(super::survives("yeah ok sure", "Yes.").is_ok());
+    }
+
+    #[test]
+    fn terminals_get_raw_so_commands_are_never_rewritten() {
+        let cfg = Config::default();
+        for shell in ["WindowsTerminal.exe", "pwsh.exe", "cmd.exe"] {
+            let m = cfg.mode_for(shell, "");
+            assert_eq!(m.id, "raw", "{shell} must not be rewritten");
+            assert!(!m.llm);
+        }
     }
 
     #[test]

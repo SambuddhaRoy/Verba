@@ -456,8 +456,12 @@ if (!api?.listen) {
       el.minTime.textContent = `00:${String(s).padStart(2, '0')}`;
     }
     if (payload.status) {
-      el.status.textContent = payload.status;
-      el.gStatus.textContent = payload.status;
+      // Once a mode has formatted the text, naming it is more use than
+      // "INSERTED" — it is the only place the routing decision is visible,
+      // and a wrong rule is otherwise invisible until you read the output.
+      const label = payload.mode ? payload.mode.toUpperCase() : payload.status;
+      el.status.textContent = label;
+      el.gStatus.textContent = label;
       el.status.style.color =
         payload.phase === 'listening' ? 'oklch(80% .12 350)' : 'oklch(76% .12 300)';
     }
