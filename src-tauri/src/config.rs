@@ -130,11 +130,16 @@ fn default_modes() -> Vec<Mode> {
             id: "email".into(),
             name: "Email".into(),
             description: "Clean prose, no filler.".into(),
-            instructions: "Rewrite this dictation as a short, clear email body. \
-                           Keep the speaker's voice and level of formality. Never \
-                           invent facts, names, numbers or commitments that are not \
-                           present. Do not add a greeting or sign-off unless one was \
-                           dictated. Output only the rewritten text."
+            // "Never add" is not enough on its own: a model asked to improve
+            // prose will supply the judgement it thinks is implied. Observed
+            // turning "the seat minimum reads like it applies to everyone"
+            // into "...when it should not", which the speaker never said.
+            instructions: "Rewrite this dictation as a clear email body. Fix grammar \
+                           and punctuation, keep the speaker's voice and level of \
+                           formality, and keep every point they made. Do not add \
+                           opinions, conclusions or judgements they did not state, \
+                           even if implied. Do not add a greeting or sign-off unless \
+                           one was dictated. Output only the rewritten text."
                 .into(),
             llm: true,
             ..Default::default()
@@ -143,9 +148,29 @@ fn default_modes() -> Vec<Mode> {
             id: "notes".into(),
             name: "Notes".into(),
             description: "Bulleted and terse; keeps names and numbers.".into(),
-            instructions: "Turn this dictation into terse bullet points. Preserve every \
-                           name, number, date and technical term exactly. Do not add \
-                           items that were not said. Output only the bullets."
+            // "Terse bullet points" alone reads as licence to summarise: this
+            // returned a single seven-word bullet for a forty-word dictation.
+            // The rule that fixed it is one bullet per point, nothing dropped.
+            instructions: "Turn this dictation into bullet points. Every distinct point \
+                           becomes its own bullet — do not summarise, merge or omit \
+                           anything that was said. Tighten the wording, but keep all \
+                           the content. Preserve every name, number, date and technical \
+                           term exactly. Output only the bullets."
+                .into(),
+            llm: true,
+            ..Default::default()
+        },
+        Mode {
+            id: "chat".into(),
+            name: "Chat".into(),
+            description: "One or two sentences, no salutation, no sign-off.".into(),
+            // Chat is not short email: a model given the email brief adds
+            // openers and closings nobody types into Slack.
+            instructions: "Clean up this dictation for a chat message. Fix grammar and \
+                           punctuation and keep it conversational. Do not add a \
+                           greeting, a sign-off, or any pleasantry that was not \
+                           dictated. Do not expand it or make it more formal. Output \
+                           only the message."
                 .into(),
             llm: true,
             ..Default::default()
@@ -169,24 +194,42 @@ fn default_modes() -> Vec<Mode> {
     ]
 }
 
+fn rule(mode: &str, exe: &[&str]) -> AppRule {
+    AppRule { mode: mode.into(), exe: exe.iter().map(|s| s.to_string()).collect(), title: None }
+}
+
 fn default_rules() -> Vec<AppRule> {
     vec![
-        AppRule {
-            mode: "code".into(),
-            exe: vec!["Code.exe".into(), "devenv.exe".into(), "idea64.exe".into(),
-                      "pycharm64.exe".into(), "rustrover64.exe".into(), "sublime_text.exe".into()],
-            title: None,
-        },
-        AppRule {
-            mode: "email".into(),
-            exe: vec!["olk.exe".into(), "OUTLOOK.EXE".into(), "thunderbird.exe".into()],
-            title: None,
-        },
-        AppRule {
-            mode: "notes".into(),
-            exe: vec!["Obsidian.exe".into(), "Notion.exe".into(), "onenote.exe".into()],
-            title: None,
-        },
+        // Terminals first and deliberately Raw: a shell command must reach the
+        // prompt exactly as spoken, and any rewrite is a wrong command run.
+        rule("raw", &[
+            "WindowsTerminal.exe", "powershell.exe", "pwsh.exe", "cmd.exe",
+            "conhost.exe", "wt.exe", "alacritty.exe", "wezterm-gui.exe", "mintty.exe",
+        ]),
+        rule("code", &[
+            "Code.exe", "Code - Insiders.exe", "VSCodium.exe", "devenv.exe",
+            "idea64.exe", "pycharm64.exe", "webstorm64.exe", "clion64.exe",
+            "goland64.exe", "rider64.exe", "rustrover64.exe",
+            "sublime_text.exe", "notepad++.exe", "zed.exe", "cursor.exe",
+            "nvim-qt.exe", "gvim.exe",
+        ]),
+        rule("email", &[
+            "olk.exe", "OUTLOOK.EXE", "thunderbird.exe", "HxOutlook.exe",
+            "Mailbird.exe", "em Client.exe", "Spark.exe",
+        ]),
+        rule("chat", &[
+            "slack.exe", "Teams.exe", "ms-teams.exe", "Discord.exe",
+            "WhatsApp.exe", "Telegram.exe", "signal.exe", "Element.exe",
+            "Zoom.exe", "Skype.exe",
+        ]),
+        rule("notes", &[
+            "Obsidian.exe", "Notion.exe", "onenote.exe", "ONENOTE.EXE",
+            "logseq.exe", "Typora.exe", "joplin.exe", "AnyType.exe",
+            "Craft.exe", "Bear.exe",
+        ]),
+        // Long-form writing gets the email treatment: clean connected prose,
+        // no bullets, no chat register.
+        rule("email", &["WINWORD.EXE", "soffice.bin", "scrivener.exe", "Obsidian Publish.exe"]),
     ]
 }
 
