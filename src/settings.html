@@ -21,6 +21,7 @@
     <button class="nav on" data-panel="general"><i></i>General</button>
     <button class="nav" data-panel="dictation"><i></i>Dictation</button>
     <button class="nav" data-panel="models"><i></i>Models</button>
+    <button class="nav" data-panel="modes"><i></i>Modes</button>
     <button class="nav" data-panel="appearance"><i></i>Appearance</button>
     <button class="nav" data-panel="about"><i></i>About</button>
     <div class="rig">
@@ -113,6 +114,37 @@
         </div>
         <button class="btn" id="open-models">Open</button>
       </div>
+    </div>
+
+    <!-- Modes -->
+    <div class="panel" id="p-modes">
+      <h1>Modes</h1>
+      <p class="sub">How a finished transcript is formatted before it is inserted. The mode is chosen by which app had focus when you started speaking.</p>
+
+      <div class="card row">
+        <div class="grow">
+          <b>Rewrite model</b>
+          <small id="llm-note">Used only by modes with the model pass switched on.</small>
+        </div>
+        <select id="llm_model"></select>
+      </div>
+
+      <div class="card row">
+        <div class="grow"><b>Fallback mode</b><small>Used when no app rule matches.</small></div>
+        <select id="default_mode"></select>
+      </div>
+
+      <h2 class="sect">Modes</h2>
+      <div id="modes"></div>
+
+      <h2 class="sect">App routing</h2>
+      <p class="hint">First match wins. Executable names are matched exactly; the title condition is an optional substring.</p>
+      <div id="rules"></div>
+      <button class="btn" id="add-rule">Add rule</button>
+
+      <h2 class="sect">Vocabulary</h2>
+      <p class="hint">One term per line to fix its casing, or <code>spoken =&gt; written</code> to rewrite a phrase the recogniser mangles. Applied before any model sees the text.</p>
+      <textarea id="vocabulary" spellcheck="false" placeholder="ONNX&#10;Kubernetes&#10;on ex =&gt; ONNX"></textarea>
     </div>
 
     <!-- Appearance -->

@@ -383,6 +383,8 @@ async function boot() {
     wrap.appendChild(row);
   });
 
+  buildModes(s);
+
   $('models-dir').textContent = s.models_dir;
   $('open-models').onclick = () =>
     invoke('reveal_models_dir').catch(e => toast(`${e}`));
@@ -398,11 +400,118 @@ async function boot() {
   render();
 }
 
+/* --- modes, routing and vocabulary --------------------------------------- */
+
+function modeOptions(selected) {
+  return cfg.modes
+    .map(m => `<option value="${m.id}"${m.id === selected ? ' selected' : ''}>${m.name}</option>`)
+    .join('');
+}
+
+/** Rules are rebuilt wholesale on change. The list is short and the
+ *  alternative — patching indices in place after a delete — is where
+ *  off-by-one bugs live. */
+function renderRules() {
+  const host = $('rules');
+  host.innerHTML = '';
+  cfg.rules.forEach((r, i) => {
+    const row = document.createElement('div');
+    row.className = 'rule';
+    row.innerHTML = `
+      <select>${modeOptions(r.mode)}</select>
+      <input class="exe" placeholder="Code.exe, devenv.exe" value="${(r.exe || []).join(', ')}">
+      <input class="ttl" placeholder="title contains… (optional)" value="${r.title ?? ''}">
+      <button class="del" title="Remove">&#10005;</button>`;
+    const [sel, exe, ttl] = [row.querySelector('select'), row.querySelector('.exe'), row.querySelector('.ttl')];
+    sel.onchange = () => { cfg.rules[i].mode = sel.value; save(); };
+    exe.onchange = () => {
+      cfg.rules[i].exe = exe.value.split(',').map(s => s.trim()).filter(Boolean);
+      save('Routing saved');
+    };
+    ttl.onchange = () => {
+      cfg.rules[i].title = ttl.value.trim() || null;
+      save('Routing saved');
+    };
+    row.querySelector('.del').onclick = () => {
+      cfg.rules.splice(i, 1);
+      renderRules();
+      save('Rule removed');
+    };
+    host.appendChild(row);
+  });
+}
+
+function buildModes(s) {
+  // Rewrite model. An unreachable Ollama returns nothing, so keep whatever is
+  // configured as a choice rather than silently switching models underneath.
+  const sel = $('llm_model');
+  const names = s.llm_models.length ? s.llm_models : [cfg.llm_model];
+  sel.innerHTML = names
+    .map(n => `<option value="${n}"${n === cfg.llm_model ? ' selected' : ''}>${n}</option>`)
+    .join('');
+  $('llm-note').textContent = s.llm_models.length
+    ? 'Used only by modes with the model pass switched on.'
+    : `No local models found at ${cfg.llm_url}. Modes with the model pass on will insert the cleaned transcript instead.`;
+  sel.onchange = () => { cfg.llm_model = sel.value; save('Rewrite model set'); };
+
+  const def = $('default_mode');
+  def.innerHTML = modeOptions(cfg.default_mode);
+  def.onchange = () => { cfg.default_mode = def.value; save('Fallback mode set'); };
+
+  const host = $('modes');
+  host.innerHTML = '';
+  cfg.modes.forEach((m, i) => {
+    const card = document.createElement('div');
+    card.className = 'mode';
+    card.innerHTML = `
+      <div class="hd">
+        <span class="nm">${m.name}</span><span class="id">${m.id}</span>
+        <span class="sw"><span>model pass</span><button class="tgl${m.llm ? ' on' : ''}"></button></span>
+      </div>
+      <div class="desc">${m.description}</div>`;
+    const tgl = card.querySelector('.tgl');
+
+    // Instructions only matter when the model pass is on, so the box appears
+    // with it rather than sitting inert.
+    const ta = document.createElement('textarea');
+    ta.spellcheck = false;
+    ta.value = m.instructions;
+    ta.placeholder = 'Instructions for the rewrite model…';
+    ta.hidden = !m.llm;
+    ta.onchange = () => { cfg.modes[i].instructions = ta.value; save('Instructions saved'); };
+    card.appendChild(ta);
+
+    tgl.onclick = () => {
+      cfg.modes[i].llm = !cfg.modes[i].llm;
+      tgl.classList.toggle('on', cfg.modes[i].llm);
+      ta.hidden = !cfg.modes[i].llm;
+      save(cfg.modes[i].llm ? 'Model pass on' : 'Model pass off');
+    };
+    host.appendChild(card);
+  });
+
+  renderRules();
+  $('add-rule').onclick = () => {
+    cfg.rules.push({ mode: cfg.default_mode, exe: [], title: null });
+    renderRules();
+    save();
+  };
+
+  const vocab = $('vocabulary');
+  vocab.value = (cfg.vocabulary || []).join('\n');
+  vocab.onchange = () => {
+    cfg.vocabulary = vocab.value.split('\n').map(s => s.trim()).filter(Boolean);
+    save('Vocabulary saved');
+  };
+}
+
 /** Rebuild the panels that depend on what's on disk. */
 async function reload() {
   const keep = document.querySelector('.nav.on')?.dataset.panel;
   $('models').innerHTML = '';
   $('engine').innerHTML = '';
+  $('modes').innerHTML = '';
+  $('rules').innerHTML = '';
   $('microphone').innerHTML = '<option value="">System default</option>';
   await boot();
   if (keep) document.querySelector(`.nav[data-panel="${keep}"]`)?.click();

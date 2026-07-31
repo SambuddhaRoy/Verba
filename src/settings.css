@@ -283,6 +283,70 @@ input[type=range]::-webkit-slider-thumb {
   box-shadow: 0 0 0 3px rgba(12, 12, 14, .9), 0 1px 4px rgba(0, 0, 0, .6);
 }
 
+/* ------------------------------------------------------------------ modes */
+
+.sect {
+  margin: 22px 0 8px;
+  font: 600 12px var(--sans);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+textarea {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  box-shadow: var(--spec);
+  color: var(--text);
+  font: 400 12px/1.6 var(--mono);
+}
+textarea:focus-visible { outline: 2px solid var(--accent-light); outline-offset: 1px; }
+
+.mode { border-radius: 8px; padding: 14px 16px; margin-bottom: 6px; background: var(--fill); box-shadow: var(--spec); }
+.mode .hd { display: flex; align-items: center; gap: 10px; }
+.mode .nm { font: 600 13px var(--sans); }
+.mode .id { font: 400 10px var(--mono); color: var(--text-3); }
+.mode .sw { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.mode .sw span { font: 400 11px var(--sans); color: var(--text-3); }
+.mode textarea { min-height: 66px; margin-top: 10px; }
+.mode .desc { margin-top: 4px; font: 400 11.5px/1.45 var(--sans); color: var(--text-3); }
+
+.rule { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.rule select { min-width: 120px; }
+.rule input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--fill);
+  box-shadow: var(--spec);
+  color: var(--text);
+  font: 400 12px var(--mono);
+}
+.rule input:focus-visible { outline: 2px solid var(--accent-light); outline-offset: 1px; }
+.rule .del {
+  width: 30px; height: 32px;
+  flex: none;
+  border: 0; border-radius: 5px;
+  background: var(--fill);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.rule .del:hover { background: #C42B1C; color: #fff; }
+code {
+  font: 400 11px var(--mono);
+  background: rgba(255,255,255,.08);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
 /* --------------------------------------------------------------- segments */
 
 .seg {
