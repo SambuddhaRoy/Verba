@@ -39,12 +39,110 @@ const HALOS = [
   { speed:   9, from: 0.60, to: 1.00, blur: 56, base: 0.58, shift: 16, noise: false },
 ];
 
-/** Blues and violets only — the glow stays one colour family. Sampled across
- *  however many bands arrive. */
-const GLOW_STOPS = [
+/* Palettes are derived from the Windows accent rather than fixed, so both
+ * treatments sit in the same colour family as the settings window.
+ *
+ * A spread of hue is kept around the accent instead of a flat monochrome ramp:
+ * the ribbons rely on screen blending, and it is where differently-coloured
+ * bands cross that the white lens shapes appear. Identical colours would blend
+ * into a single flat band and lose the effect the design is built on. */
+const RIBBON_SPREAD = [-26, 14, -12, 30, -34, 22, 0];
+const RIBBON_LIGHT  = [0.62, 0.70, 0.58, 0.74, 0.52, 0.66, 0.97];
+const GLOW_SPREAD   = [-18, 8, 26, -10, 18, -26];
+const GLOW_LIGHT    = [0.66, 0.74, 0.86, 0.60, 0.70, 0.56];
+
+/** Defaults until the engine sends the real accent. */
+let RIBBON_COLORS = ['#6E7BFF', '#8A7BFF', '#5E8BFF', '#9B8BFF', '#4F7BFF', '#7FA0FF', '#FFFFFF'];
+let GLOW_STOPS = [
   [ 79, 168, 255], [ 23, 200, 255], [170, 225, 255],
   [ 96, 150, 255], [106,  92, 255], [ 43, 123, 255],
 ];
+/** The box's own cast shadow: the saturated body and the pale inner lip. */
+let SHADOW_CORE = '52,134,255';
+let SHADOW_LIP  = '160,220,255';
+
+function hexToHsl(hex) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const l = (max + min) / 2;
+  if (d === 0) return [0, 0, l];
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? ((g - b) / d + (g < b ? 6 : 0))
+          : max === g ? (b - r) / d + 2
+          : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+
+function hslToRgb(h, s, l) {
+  h = ((h % 360) + 360) % 360 / 360;
+  if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const ch = t => {
+    t = (t + 1) % 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return [ch(h + 1 / 3), ch(h), ch(h - 1 / 3)].map(v => Math.round(v * 255));
+}
+
+/** Rebuild both palettes around a hue. */
+function applyAccent(hex) {
+  const [h, s0] = hexToHsl(hex);
+  // Capped because boosting an already saturated accent lands on neon — a
+  // stock Windows blue came out as almost pure cyan before the ceiling.
+  // Floored so a merely muted accent still reads as a colour, but only above
+  // the achromatic threshold: a true grey has no hue, hexToHsl reports 0°,
+  // and flooring that would paint a red glow for someone who chose silver.
+  // Ribbons stay distinct at s=0 because their lightnesses differ.
+  const s = s0 < 0.08 ? 0 : Math.min(0.85, Math.max(0.5, s0));
+
+  RIBBON_COLORS = RIBBON_SPREAD.map((d, i) => {
+    // Last ribbon is the white spine from the design; it stays white.
+    if (i === RIBBON_SPREAD.length - 1) return '#FFFFFF';
+    const [r, g, b] = hslToRgb(h + d, s, RIBBON_LIGHT[i]);
+    return `rgb(${r},${g},${b})`;
+  });
+  paths.forEach((p, i) => p.setAttribute('fill', RIBBON_COLORS[i]));
+
+  GLOW_STOPS = GLOW_SPREAD.map((d, i) => hslToRgb(h + d, s, GLOW_LIGHT[i]));
+
+  // The cast shadow is the largest area of colour in this treatment, so it
+  // has to follow the accent too — tinting only the halos left a green accent
+  // sitting inside a blue bloom.
+  SHADOW_CORE = hslToRgb(h, s, 0.60).join(',');
+  SHADOW_LIP  = hslToRgb(h, Math.min(s, 0.60), 0.82).join(',');
+
+  // The box halo and the minimal playhead take the accent directly.
+  document.documentElement.style.setProperty('--accent', hex);
+  const [ar, ag, ab] = hslToRgb(h, s, 0.62);
+  document.documentElement.style.setProperty('--accent-rgb', `${ar}, ${ag}, ${ab}`);
+}
+
+/** Both bugs this caught were in the saturation rule, so that is what it
+ *  asserts. Run it with overlay.html?selftest, or call it from the console. */
+function accentSelfTest() {
+  const fails = [];
+  const chan = hex => (applyAccent(hex), SHADOW_CORE.split(',').map(Number));
+  const spread = c => Math.max(...c) - Math.min(...c);
+
+  // A grey accent must stay grey: hexToHsl reports 0° for it, so any
+  // saturation floor turns silver into red.
+  if (spread(chan('#6B6B6B')) !== 0) fails.push('grey accent gained a hue');
+  // A saturated accent must not be pushed to neon.
+  if (Math.max(...chan('#0078D4')) > 245) fails.push('blue accent went neon');
+  // A muted accent must still read as its own colour.
+  const [r, g, b] = chan('#36834D');
+  if (!(g > r && g > b)) fails.push('green accent lost its hue');
+
+  const msg = fails.length ? `accent self-test FAILED: ${fails.join('; ')}` : 'accent self-test passed';
+  console[fails.length ? 'error' : 'log'](msg);
+  return msg;
+}
+if (location.search.includes('selftest')) accentSelfTest();
 
 /* Minimal treatment: a scrolling record of loudness over time rather than a
  * spectrum. One bar per slice, mirrored about the centre line, with a playhead
@@ -421,10 +519,10 @@ function tick(now) {
     if (rebuild) {
       const g = avg * level;
       el.box.style.boxShadow =
-        `0 0 ${(24 + 130 * g).toFixed(0)}px ${(-10 + 40 * g).toFixed(0)}px rgba(52,134,255,${(0.16 + 0.72 * g).toFixed(3)}),` +
-        `0 0 ${(8 + 44 * g).toFixed(0)}px rgba(160,220,255,${(0.08 + 0.5 * g).toFixed(3)}),` +
+        `0 0 ${(24 + 130 * g).toFixed(0)}px ${(-10 + 40 * g).toFixed(0)}px rgba(${SHADOW_CORE},${(0.16 + 0.72 * g).toFixed(3)}),` +
+        `0 0 ${(8 + 44 * g).toFixed(0)}px rgba(${SHADOW_LIP},${(0.08 + 0.5 * g).toFixed(3)}),` +
         'inset 0 1px 0 rgba(255,255,255,.18),' +
-        'inset 0 0 0 1px rgba(140,200,255,.16),' +
+        `inset 0 0 0 1px rgba(${SHADOW_LIP},.16),` +
         '0 30px 80px -30px rgba(0,0,0,.95)';
     }
   }
@@ -447,6 +545,7 @@ if (!api?.listen) {
     if (payload.phase !== phase) setPhase(payload.phase);
     if (Array.isArray(payload.bands)) setBands(payload.bands);
     if (payload.backdrop) setBackdrop(payload.backdrop);
+    if (payload.accent?.base) applyAccent(payload.accent.base);
 
     if (typeof payload.elapsed === 'number') {
       const s = Math.floor(payload.elapsed);
@@ -462,8 +561,14 @@ if (!api?.listen) {
       const label = payload.mode ? payload.mode.toUpperCase() : payload.status;
       el.status.textContent = label;
       el.gStatus.textContent = label;
-      el.status.style.color =
-        payload.phase === 'listening' ? 'oklch(80% .12 350)' : 'oklch(76% .12 300)';
+      // Accent while live, plain white once the text has landed — the same
+      // monochrome-plus-accent split the settings window uses.
+      const tint = payload.phase === 'listening'
+        // The lifted variant, not the raw accent: a dark system colour like a
+        // deep green is close to unreadable as small text on this background.
+        ? 'rgb(var(--accent-rgb))' : 'rgba(255,255,255,.66)';
+      el.status.style.color = tint;
+      el.gStatus.style.color = tint;
     }
     if (payload.model) {
       const name = payload.model.replace(/^ggml-/, '').replace(/\.bin$/, '').toUpperCase();

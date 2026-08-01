@@ -52,6 +52,13 @@ pub fn rewrite(cfg: &Config, instructions: &str, text: &str) -> Result<String> {
     if recently_unreachable() {
         return Err(anyhow!("skipped: {} was unreachable moments ago", cfg.llm_url));
     }
+    // Start the server if it is installed but idle. The negative cache above
+    // keeps this from being attempted on every dictation when Ollama is not
+    // installed at all.
+    if let Err(e) = crate::ollama::ensure_running(cfg) {
+        note_reachability(false);
+        return Err(e);
+    }
     let url = format!("{}/api/generate", cfg.llm_url.trim_end_matches('/'));
 
     let body = serde_json::json!({
@@ -74,11 +81,16 @@ pub fn rewrite(cfg: &Config, instructions: &str, text: &str) -> Result<String> {
         "think": false,
     });
 
+    let t0 = Instant::now();
     let sent = ureq::post(&url)
         .config()
         .timeout_global(Some(TIMEOUT))
         .build()
         .send_json(&body);
+    // Separating the round-trip from the total is what distinguishes a slow
+    // model from a cold one — a first request after startup pays the weight
+    // load and can eat the whole timeout, which is why preload() exists.
+    crate::log!("  llm: round-trip {}ms", t0.elapsed().as_millis());
 
     // Only a transport failure means "down"; a model that errors is a
     // different problem and should not stop us trying again next time.
