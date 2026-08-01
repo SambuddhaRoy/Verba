@@ -316,6 +316,51 @@ textarea:focus-visible { outline: 2px solid var(--accent-light); outline-offset:
 .mode textarea { min-height: 66px; margin-top: 10px; }
 .mode .desc { margin-top: 4px; font: 400 11.5px/1.45 var(--sans); color: var(--text-3); }
 
+/* Server status. The dot carries the state at a glance; the label spells it
+   out, because a colour alone is no use to anyone who cannot distinguish it. */
+.dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  margin: 0 6px 0 2px;
+  border-radius: 50%;
+  background: var(--text-3);
+  vertical-align: middle;
+}
+.dot.up   { background: var(--accent-light); box-shadow: 0 0 8px 1px rgba(var(--accent-rgb), .8); }
+.dot.down { background: #E8A33D; }
+.dot.gone { background: #C42B1C; }
+#ollama-state { font: 400 11px var(--mono); letter-spacing: .06em; color: var(--text-3); }
+
+.llm {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 8px;
+  padding: 13px 15px;
+  margin-bottom: 6px;
+  background: var(--fill);
+  box-shadow: var(--spec);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  display: block;
+}
+.llm:hover { background: rgba(255, 255, 255, .06); }
+.llm.on {
+  background: rgba(var(--accent-rgb), .16);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .5);
+}
+.llm .top { display: flex; align-items: baseline; gap: 9px; }
+.llm .nm { font: 600 13px var(--sans); }
+.llm .meta { font: 400 10px var(--mono); letter-spacing: .04em; color: var(--text-3); }
+.llm .rec { font: 400 10px var(--mono); letter-spacing: .04em; color: var(--accent-light); }
+.llm .act { margin-left: auto; }
+.llm .note { margin-top: 7px; font: 400 11.5px/1.45 var(--sans); color: var(--text-3); }
+.llm .pull { position: relative; height: 0; margin-top: 0; border-radius: 2px; background: rgba(255,255,255,.1); overflow: hidden; transition: height .3s ease, margin-top .3s ease; }
+.llm.pulling .pull { height: 4px; margin-top: 10px; }
+.llm .pull-fill { width: 0; height: 100%; border-radius: 2px; background: var(--accent-light); transition: width .25s ease; }
+.llm .pull-txt { position: absolute; right: 0; top: -16px; font: 400 10px var(--mono); color: var(--text-3); }
+
 .rule { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .rule select { min-width: 120px; }
 .rule input {

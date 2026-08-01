@@ -14,6 +14,8 @@ let cfg = null;
 let saveTimer = null;
 /** Model to select automatically once its download finishes. */
 let pendingSelect = null;
+/** Ollama model to select once its pull finishes. */
+let pendingLlm = null;
 
 /* Download progress. Wired before boot() so a transfer already running when the
  * window opens still reports. */
@@ -59,6 +61,37 @@ if (listen) {
     // Availability changed, so the engine list and model rows are both stale.
     reload();
   }).catch(e => console.error('engine listen rejected', e));
+
+  listen('verba:llm-pull', ({ payload }) => {
+    const row = document.querySelector(`.llm[data-name="${CSS.escape(payload.name)}"]`);
+    if (!row) return;
+
+    if (!payload.done) {
+      const pct = payload.total ? (payload.completed / payload.total) * 100 : 0;
+      row.querySelector('.pull-fill').style.width = `${pct.toFixed(1)}%`;
+      // Ollama's status line carries the real stage — verifying, extracting,
+      // writing the manifest — and none of those report byte counts.
+      row.querySelector('.pull-txt').textContent = payload.total
+        ? `${(payload.completed / 1073741824).toFixed(1)} / ${(payload.total / 1073741824).toFixed(1)} GB`
+        : payload.status;
+      return;
+    }
+
+    row.classList.remove('pulling');
+    if (payload.error) {
+      toast(`Pull failed: ${payload.error}`);
+      pendingLlm = null;
+      reload();
+      return;
+    }
+    toast(`${payload.name} ready`);
+    if (pendingLlm === payload.name) {
+      cfg.llm_model = payload.name;
+      pendingLlm = null;
+      save('Model downloaded and selected');
+    }
+    reload();
+  }).catch(e => console.error('llm-pull listen rejected', e));
 }
 
 function toast(msg) {
@@ -441,18 +474,113 @@ function renderRules() {
   });
 }
 
+/** Server state, and the one action that resolves it. */
+function buildOllama(s) {
+  const dot = $('ollama-dot'), state = $('ollama-state'), note = $('ollama-note'),
+        action = $('ollama-action');
+  dot.className = 'dot';
+  action.hidden = true;
+  action.disabled = false;
+
+  if (s.ollama_status === 'running') {
+    dot.classList.add('up');
+    state.textContent = 'RUNNING';
+    note.textContent = 'Runs the rewrite pass locally. Verba starts it automatically when needed.';
+  } else if (s.ollama_status === 'stopped') {
+    dot.classList.add('down');
+    state.textContent = 'STOPPED';
+    note.textContent = 'Installed but not running. Verba starts it on the next dictation, or start it now.';
+    action.hidden = false;
+    action.textContent = 'Start';
+    action.onclick = () => {
+      action.disabled = true;
+      action.textContent = 'Starting…';
+      invoke('start_ollama')
+        .then(() => { toast('Ollama started'); reload(); })
+        .catch(e => { action.disabled = false; action.textContent = 'Start'; toast(`${e}`); });
+    };
+  } else {
+    dot.classList.add('gone');
+    state.textContent = 'NOT INSTALLED';
+    // Deliberately not offering to install it: that is a signed installer from
+    // another vendor, and silently fetching and running one is not Verba's
+    // call to make.
+    note.textContent = 'Post-processing needs Ollama. Install it from ollama.com, then reopen this window.';
+    action.hidden = false;
+    action.textContent = 'Open ollama.com';
+    action.onclick = () => invoke('open_url', { url: 'https://ollama.com/download' })
+      .catch(e => toast(`${e}`));
+  }
+}
+
+/** The curated small models, plus anything already pulled on this machine. */
+function buildLlmList(s) {
+  const host = $('llm-list');
+  host.innerHTML = '';
+
+  s.llm_models.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'llm' + (m.name === cfg.llm_model ? ' on' : '');
+    row.dataset.name = m.name;
+    const size = m.local_only ? 'on this machine' : `${m.size_gb.toFixed(1)} GB`;
+    row.innerHTML = `
+      <div class="top">
+        <span class="nm">${m.name}</span>
+        <span class="meta">${m.params ? m.params + ' · ' : ''}${size}</span>
+        ${m.recommended ? '<span class="rec">RECOMMENDED</span>' : ''}
+        <span class="act"></span>
+      </div>
+      <div class="note">${m.note}</div>
+      <div class="pull"><div class="pull-fill"></div><span class="pull-txt"></span></div>`;
+
+    if (!m.installed) {
+      const btn = document.createElement('button');
+      btn.className = 'btn tiny';
+      btn.textContent = `Download ${m.size_gb.toFixed(1)} GB`;
+      btn.onclick = e => {
+        e.stopPropagation();
+        btn.disabled = true;
+        btn.textContent = 'Starting…';
+        row.classList.add('pulling');
+        // Selecting it once it lands makes download-then-use one action.
+        pendingLlm = m.name;
+        invoke('pull_llm_model', { name: m.name }).catch(err => {
+          row.classList.remove('pulling');
+          btn.disabled = false;
+          btn.textContent = `Download ${m.size_gb.toFixed(1)} GB`;
+          toast(`${err}`);
+        });
+      };
+      row.querySelector('.act').appendChild(btn);
+    }
+
+    row.onclick = () => {
+      if (!m.installed) { toast('Download it first'); return; }
+      cfg.llm_model = m.name;
+      buildLlmList(s);
+      $('llm_model').value = m.name;
+      save('Rewrite model set');
+    };
+    host.appendChild(row);
+  });
+}
+
 function buildModes(s) {
-  // Rewrite model. An unreachable Ollama returns nothing, so keep whatever is
-  // configured as a choice rather than silently switching models underneath.
+  buildOllama(s);
+  buildLlmList(s);
+
+  // Rewrite model. Only installed models are selectable here; the list above
+  // is where an uninstalled one gets pulled.
   const sel = $('llm_model');
-  const names = s.llm_models.length ? s.llm_models : [cfg.llm_model];
+  const have = s.llm_models.filter(m => m.installed).map(m => m.name);
+  const names = have.length ? have : [cfg.llm_model];
   sel.innerHTML = names
     .map(n => `<option value="${n}"${n === cfg.llm_model ? ' selected' : ''}>${n}</option>`)
     .join('');
-  $('llm-note').textContent = s.llm_models.length
+  $('llm-note').textContent = have.length
     ? 'Used only by modes with the model pass switched on.'
-    : `No local models found at ${cfg.llm_url}. Modes with the model pass on will insert the cleaned transcript instead.`;
-  sel.onchange = () => { cfg.llm_model = sel.value; save('Rewrite model set'); };
+    : `Nothing pulled yet. Download ${s.llm_recommended} below — modes with the model pass on insert the cleaned transcript until then.`;
+  sel.onchange = () => { cfg.llm_model = sel.value; buildLlmList(s); save('Rewrite model set'); };
 
   const def = $('default_mode');
   def.innerHTML = modeOptions(cfg.default_mode);
@@ -511,6 +639,7 @@ async function reload() {
   $('models').innerHTML = '';
   $('engine').innerHTML = '';
   $('modes').innerHTML = '';
+  $('llm-list').innerHTML = '';
   $('rules').innerHTML = '';
   $('microphone').innerHTML = '<option value="">System default</option>';
   await boot();

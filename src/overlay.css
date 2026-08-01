@@ -9,6 +9,9 @@
  */
 
 :root {
+  /* Overwritten from the Windows accent once the engine sends it. */
+  --accent: #4A90D9;
+  --accent-rgb: 74, 144, 217;
   --pink:   oklch(80% .14 350);
   --violet: oklch(72% .13 300);
   --indigo: oklch(62% .13 275);
@@ -246,7 +249,7 @@ html, body {
   width: 2px;
   height: 100%;
   border-radius: 1px;
-  background: #E8382F;
+  background: var(--accent);
   pointer-events: none;
 }
 
@@ -263,7 +266,7 @@ html, body {
 }
 #min-line.open { height: 76px; margin-top: 18px; }
 #min-line .caret {
-  background: #E8382F;
+  background: var(--accent);
   box-shadow: none;
   height: 14px;
 }

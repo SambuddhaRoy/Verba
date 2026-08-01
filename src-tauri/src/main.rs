@@ -22,6 +22,7 @@ mod hardware;
 mod hotkey;
 mod inject;
 mod llm;
+mod ollama;
 mod overlay;
 mod pipeline;
 mod parakeet;
@@ -36,6 +37,7 @@ use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
+use std::os::windows::process::CommandExt;
 use windows::Win32::Foundation::HWND;
 
 const EVENT: &str = "verba:state";
@@ -79,6 +81,9 @@ struct State {
     /// something to put on the 30fps tick.
     #[serde(skip_serializing_if = "Option::is_none")]
     backdrop: Option<Backdrop>,
+    /// Windows accent, sent once at boot so both treatments can tint to it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    accent: Option<accent::Accent>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -102,6 +107,7 @@ impl State {
             mode: None,
             gpu: cfg!(feature = "gpu-vulkan"),
             backdrop: None,
+            accent: None,
         }
     }
 }
@@ -142,12 +148,16 @@ struct SettingsState {
     config_path: String,
     models_dir: String,
     accent: accent::Accent,
-    llm_models: Vec<String>,
+    llm_models: Vec<ollama::LlmModel>,
+    ollama_status: ollama::Status,
+    llm_recommended: &'static str,
 }
 
 #[tauri::command]
 fn get_state() -> SettingsState {
     let hw = hardware::detect();
+    let hw2 = hw.clone();
+    let cfg_now = config::load();
     SettingsState {
         config: config::load(),
         recommendation: hardware::recommend(&hw),
@@ -162,7 +172,9 @@ fn get_state() -> SettingsState {
         config_path: config::path().display().to_string(),
         models_dir: config::models_dir().display().to_string(),
         accent: accent::detect(),
-        llm_models: llm::installed_models(&config::load()),
+        llm_models: ollama::catalogue(&cfg_now, &hw2),
+        ollama_status: ollama::status(&cfg_now),
+        llm_recommended: ollama::recommended_for(&hw2),
     }
 }
 
@@ -267,6 +279,64 @@ fn install_engine(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Start Ollama on demand from the settings window, so the status line can be
+/// acted on rather than just read.
+#[tauri::command]
+fn start_ollama() -> Result<String, String> {
+    let cfg = config::load();
+    ollama::ensure_running(&cfg).map_err(|e| e.to_string())?;
+    Ok("running".into())
+}
+
+/// Pull an Ollama model. Returns once the transfer starts; follow
+/// `verba:llm-pull` for progress.
+#[tauri::command]
+fn pull_llm_model(app: AppHandle, name: String) -> Result<(), String> {
+    std::thread::Builder::new()
+        .name("llm-pull".into())
+        .spawn(move || {
+            let cfg = config::load();
+            let say = |status: &str, done: u64, total: u64, finished: bool, err: Option<String>| {
+                let _ = app.emit(
+                    "verba:llm-pull",
+                    serde_json::json!({
+                        "name": name, "status": status, "completed": done,
+                        "total": total, "done": finished, "error": err,
+                    }),
+                );
+            };
+            match ollama::pull(&cfg, &name, |status, done, total| say(status, done, total, false, None)) {
+                Ok(()) => {
+                    log!("pulled {name}");
+                    say("ready", 0, 0, true, None);
+                }
+                Err(e) => {
+                    log!("pull failed for {name}: {e}");
+                    say("failed", 0, 0, true, Some(e.to_string()));
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Open a link in the user's browser. Restricted to an allow-list: this takes
+/// a string from the frontend and hands it to the shell, so anything less
+/// would be a way to launch arbitrary targets.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    const ALLOWED: &[&str] = &["https://ollama.com/download", "https://ollama.com"];
+    if !ALLOWED.contains(&url.as_str()) {
+        return Err(format!("refusing to open {url}"));
+    }
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &url])
+        .creation_flags(0x0800_0000)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 fn reveal_models_dir() -> Result<(), String> {
     let dir = config::models_dir();
@@ -359,6 +429,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
     let mut boot = State::new("idle", "");
     boot.visual = Some(cfg.visual.clone());
     boot.model = Some(cfg.model.clone());
+    boot.accent = Some(accent::detect());
     emit(&app, boot);
 
     if cfg.preload_model {
@@ -369,6 +440,22 @@ fn engine_loop(app: AppHandle) -> Result<()> {
             utterance: 0,
             final_pass: false,
         });
+    }
+
+    // Warm the rewrite model off the critical path. Ollama loads weights on
+    // first request, not at startup, so without this the first dictation after
+    // a cold start waits through the load and times out into the fallback.
+    if cfg.modes.iter().any(|m| m.llm) {
+        let warm = cfg.clone();
+        std::thread::Builder::new()
+            .name("llm-warm".into())
+            .spawn(move || match ollama::preload(&warm) {
+                Ok(()) => log!("rewrite model {} warm", warm.llm_model),
+                // Not an error worth surfacing: post-processing degrades to the
+                // cleaned transcript, which is a usable outcome on its own.
+                Err(e) => log!("rewrite model not warmed: {e}"),
+            })
+            .ok();
     }
 
     log!("ready — hold {} to dictate", hotkey_label(&cfg.hotkey));
@@ -596,6 +683,7 @@ fn overlay_demo(app: AppHandle, visual: &str) {
     let mut s = State::new("idle", "");
     s.visual = Some(visual.to_string());
     s.model = Some(config::load().model);
+    s.accent = Some(accent::detect());
     emit(&app, s);
     std::thread::sleep(Duration::from_millis(120));
 
@@ -775,6 +863,16 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // `verba --state` — the exact payload the settings window renders from.
+    // The window is a separate WebView, so when a panel comes up empty this is
+    // the only way to tell a bad payload from a bad render.
+    if arg1 == Some("--state") {
+        // log!, not println!: this is a windows-subsystem binary, so stdout
+        // goes nowhere unless a console is attached.
+        log!("{}", serde_json::to_string_pretty(&get_state())?);
+        return Ok(());
+    }
+
     // `verba --capture-test` — grab the region the overlay covers and report
     // what came back. A capture that silently returns black looks exactly like
     // a blur that isn't working.
@@ -861,6 +959,9 @@ fn main() -> Result<()> {
             set_config,
             download_model,
             install_engine,
+            start_ollama,
+            pull_llm_model,
+            open_url,
             reveal_models_dir
         ])
         .setup(move |app| {
