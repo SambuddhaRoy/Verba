@@ -112,6 +112,14 @@ main.ob {
   color: var(--accent-light);
 }
 
+/* Why this model, in the recommendation's own words. */
+.card.rec .why {
+  margin: 10px 0 0;
+  font: 400 11px/1.45 var(--sans);
+  color: var(--text-3);
+}
+.card.rec .why:empty { display: none; }
+
 details.more { margin-top: 16px; }
 details.more summary {
   cursor: pointer;

@@ -29,6 +29,7 @@ mod parakeet;
 mod startup;
 mod stt;
 mod transcribe;
+mod update;
 
 use anyhow::{anyhow, Result};
 use std::path::PathBuf;
@@ -151,6 +152,12 @@ struct SettingsState {
     llm_models: Vec<ollama::LlmModel>,
     ollama_status: ollama::Status,
     llm_recommended: &'static str,
+    /// The running build, so the settings window can say what it is and the
+    /// update card has something to compare against.
+    version: &'static str,
+    /// True when a verified newer binary is already downloaded and will be
+    /// swapped in at the next idle moment.
+    update_staged: bool,
 }
 
 #[tauri::command]
@@ -161,8 +168,11 @@ fn get_state() -> SettingsState {
     SettingsState {
         config: config::load(),
         recommendation: hardware::recommend(&hw),
+        // Rated for this machine: the same model is quick on a GPU and slow
+        // without one, and the speed bar has to say which of those the user is
+        // actually looking at.
+        models: config::catalogue_for(&hw),
         hardware: hw,
-        models: config::catalogue(),
         microphones: audio::input_devices(),
         // Every known engine is listed with an availability flag. Unbuilt ones
         // are shown greyed rather than hidden, so the roadmap is visible
@@ -175,7 +185,62 @@ fn get_state() -> SettingsState {
         llm_models: ollama::catalogue(&cfg_now, &hw2),
         ollama_status: ollama::status(&cfg_now),
         llm_recommended: ollama::recommended_for(&hw2),
+        version: env!("CARGO_PKG_VERSION"),
+        update_staged: update::staged(),
     }
+}
+
+/// Ask GitHub whether there is a newer release. Returns null when current.
+#[tauri::command]
+fn check_update() -> Result<Option<update::Available>, String> {
+    update::check()
+}
+
+/// Download and verify a release, leaving it staged for the next idle moment.
+/// The transfer runs off the UI thread and reports through `verba:update`.
+#[tauri::command]
+fn download_update(app: AppHandle, avail: update::Available) -> Result<(), String> {
+    std::thread::Builder::new()
+        .name("update-dl".into())
+        .spawn(move || {
+            let version = avail.version.clone();
+            let emit_progress = |received: u64, total: u64| {
+                let _ = app.emit(
+                    update::EVENT,
+                    serde_json::json!({
+                        "version": version, "received": received,
+                        "total": total, "done": false
+                    }),
+                );
+            };
+            let result = update::stage(&avail, emit_progress);
+            let _ = app.emit(
+                update::EVENT,
+                match &result {
+                    Ok(_) => serde_json::json!({
+                        "version": avail.version, "done": true, "staged": true
+                    }),
+                    Err(e) => serde_json::json!({
+                        "version": avail.version, "done": true, "error": e
+                    }),
+                },
+            );
+            match result {
+                Ok(_) => log!("update {} staged", avail.version),
+                Err(e) => log!("update {} failed: {e}", avail.version),
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Swap the staged binary in and restart into it, now, at the user's request.
+#[tauri::command]
+fn apply_update(app: AppHandle) -> Result<(), String> {
+    update::apply()?;
+    log!("restarting into the new version");
+    app.exit(0);
+    Ok(())
 }
 
 #[tauri::command]
@@ -400,6 +465,65 @@ fn hotkey_label(hk: &config::Hotkey) -> String {
     if hk.win { parts.push("Win"); }
     parts.push(&hk.label);
     parts.join("+")
+}
+
+/// Set once a verified newer binary is waiting. The engine loop reads it and
+/// performs the swap the next time it is idle, so an update can never land in
+/// the middle of a dictation.
+static UPDATE_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Poll GitHub for a newer release, download it, and arm the swap.
+///
+/// Deliberately unhurried: the first check waits, because startup already has a
+/// model load and a possible LLM warm-up competing for the disk, and nobody
+/// needs an update in the first thirty seconds of a session.
+fn spawn_update_watch(app: AppHandle) {
+    /// Long enough to stay out of the way of everything else starting.
+    const FIRST_CHECK: Duration = Duration::from_secs(45);
+    /// GitHub allows 60 unauthenticated calls an hour; this is four a day.
+    const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+
+    std::thread::Builder::new()
+        .name("update-watch".into())
+        .spawn(move || {
+            std::thread::sleep(FIRST_CHECK);
+            loop {
+                // Re-read rather than capturing: turning auto-update off in
+                // settings has to take effect without a restart.
+                if !config::load().auto_update {
+                    std::thread::sleep(EVERY);
+                    continue;
+                }
+
+                if update::staged() {
+                    // Already downloaded and waiting for an idle moment.
+                    UPDATE_READY.store(true, std::sync::atomic::Ordering::Relaxed);
+                } else {
+                    match update::check() {
+                        Ok(Some(avail)) => {
+                            log!("update available: {} (running {})",
+                                 avail.version, env!("CARGO_PKG_VERSION"));
+                            match update::stage(&avail, |_, _| {}) {
+                                Ok(_) => {
+                                    log!("update {} staged; will apply when idle", avail.version);
+                                    let _ = app.emit(update::EVENT, serde_json::json!({
+                                        "version": avail.version, "done": true, "staged": true
+                                    }));
+                                    UPDATE_READY.store(true, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                // Not worth surfacing: the app keeps working on
+                                // the version it has, and the next pass retries.
+                                Err(e) => log!("update {} not staged: {e}", avail.version),
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(e) => log!("update check failed: {e}"),
+                    }
+                }
+                std::thread::sleep(EVERY);
+            }
+        })
+        .ok();
 }
 
 /// True when the window that had focus belongs to this process's own exe.
@@ -687,9 +811,42 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 let _ = worker.jobs.send(transcribe::Job::Unload);
             }
         }
+
+        // Apply a staged update only from here: this branch is reached with no
+        // utterance in flight and the overlay already hidden. Restarting a
+        // tray app in that state costs the user nothing, whereas doing it a
+        // moment earlier would drop whatever they had just said.
+        //
+        // The grace period is against the case where someone dictates in
+        // bursts — releasing the hotkey briefly between sentences should not
+        // be read as "done for the day".
+        if UPDATE_READY.load(std::sync::atomic::Ordering::Relaxed)
+            && !listening
+            && hide_at.is_none()
+            && last_used.elapsed() >= UPDATE_IDLE_GRACE
+        {
+            match update::apply() {
+                Ok(()) => {
+                    log!("applied staged update, restarting");
+                    app.exit(0);
+                    return Ok(());
+                }
+                Err(e) => {
+                    // Clear the flag: a failure here is not transient — the
+                    // directory is read-only, or the staged file went missing —
+                    // and retrying every tick would fill the log.
+                    UPDATE_READY.store(false, std::sync::atomic::Ordering::Relaxed);
+                    log!("could not apply update: {e}");
+                }
+            }
+        }
     }
     Ok(())
 }
+
+/// How long the machine must be free of dictation before an update restarts
+/// the app underneath the user.
+const UPDATE_IDLE_GRACE: Duration = Duration::from_secs(120);
 
 /// Drive the overlay through its states with no microphone and no model, so the
 /// visuals can be checked on their own.
@@ -881,6 +1038,51 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // `verba --check-update` — what the background watcher sees, without
+    // waiting 45 seconds for it or restarting anything.
+    if arg1 == Some("--check-update") {
+        log!("running {}", env!("CARGO_PKG_VERSION"));
+        match update::check().map_err(|e| anyhow!(e))? {
+            None => log!("up to date"),
+            Some(a) => {
+                log!("available  {}", a.version);
+                log!("  url      {}", a.url);
+                log!("  size     {:.1} MB", a.size as f64 / 1_048_576.0);
+                log!("  sha256   {}", a.sha256);
+            }
+        }
+        log!("staged: {}", update::staged());
+        return Ok(());
+    }
+
+    // `verba --self-update` — the whole cycle on demand: check, download,
+    // verify, swap, relaunch. Also the only way to exercise the swap without
+    // waiting for a real release to appear.
+    if arg1 == Some("--self-update") {
+        let Some(avail) = update::check().map_err(|e| anyhow!(e))? else {
+            log!("already on {}, nothing to do", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        };
+        log!("downloading {} ({:.1} MB)", avail.version, avail.size as f64 / 1_048_576.0);
+
+        let mut last = 0u64;
+        update::stage(&avail, |received, total| {
+            // One line per 10%, so a slow link still shows life without
+            // scrolling the log off the screen.
+            let step = (total / 10).max(1);
+            if received - last >= step {
+                last = received;
+                log!("  {:>3}%", received * 100 / total.max(1));
+            }
+        })
+        .map_err(|e| anyhow!(e))?;
+
+        log!("verified, swapping in");
+        update::apply().map_err(|e| anyhow!(e))?;
+        log!("now running {}", avail.version);
+        return Ok(());
+    }
+
     // `verba --state` — the exact payload the settings window renders from.
     // The window is a separate WebView, so when a panel comes up empty this is
     // the only way to tell a bad payload from a bad render.
@@ -983,7 +1185,10 @@ fn main() -> Result<()> {
             start_ollama,
             pull_llm_model,
             open_url,
-            reveal_models_dir
+            reveal_models_dir,
+            check_update,
+            download_update,
+            apply_update
         ])
         .setup(move |app| {
             let overlay_win = app
@@ -1025,6 +1230,14 @@ fn main() -> Result<()> {
                     let _ = w.show();
                     let _ = w.set_focus();
                 }
+            }
+
+            // The binary we replaced last time, no longer running and so
+            // finally deletable.
+            update::sweep();
+
+            if config::load().auto_update {
+                spawn_update_watch(app.handle().clone());
             }
 
             let handle = app.handle().clone();

@@ -459,9 +459,71 @@ code {
   color: var(--accent-light);
 }
 .model .stream { color: var(--text-2); }
-.model .bar { margin-top: 9px; height: 2px; border-radius: 1px; background: rgba(255,255,255,.1); }
-.model .bar > div { height: 2px; border-radius: 1px; background: rgba(255,255,255,.35); }
-.model.on .bar > div { background: var(--accent-light); }
+/* Accuracy and speed, kept as two labelled rows rather than one blended score:
+   the trade-off between them is the entire reason to compare models, and
+   averaging it away would leave the user picking blind. Shared with the
+   onboarding window, which loads this stylesheet. */
+.rates {
+  margin-top: 10px;
+  display: grid;
+  gap: 5px;
+}
+.rate {
+  display: grid;
+  grid-template-columns: 58px 1fr 26px;
+  align-items: center;
+  gap: 9px;
+}
+.rl { font: 400 10.5px var(--sans); color: var(--text-3); }
+.rt {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .09);
+  overflow: hidden;
+}
+.rt > i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width .3s ease;
+}
+/* Solid accent for accuracy, a hatched lighter fill for speed. They have to be
+   told apart at a glance without colour doing the work alone, since the whole
+   window is monochrome plus one hue. */
+.rt > i.acc { background: var(--accent-light); }
+.rt > i.spd {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, .55) 0 3px,
+    rgba(255, 255, 255, .22) 3px 6px);
+}
+.rv { font: 400 10.5px var(--mono); color: var(--text-2); text-align: right; }
+/* The hardware caveat sits under its bar, spanning the value column. */
+/* Update card: same collapsed-until-needed progress track as the model rows. */
+.card.up { display: block; padding: 13px 15px; }
+.card.up .row { padding: 0; background: none; box-shadow: none; }
+.card.up .dl {
+  position: relative;
+  height: 0;
+  margin-top: 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .1);
+  overflow: hidden;
+  transition: height .3s ease, margin-top .3s ease;
+}
+.card.up.downloading .dl { height: 4px; margin-top: 12px; }
+.card.up .dl-fill { width: 0; height: 100%; border-radius: 2px; background: var(--accent-light); transition: width .3s ease; }
+.card.up .dl-txt {
+  position: absolute; right: 0; top: 7px;
+  font: 400 10.5px var(--mono); color: var(--text-3);
+}
+
+.rh {
+  grid-column: 2 / -1;
+  font: 400 10px var(--sans);
+  color: var(--text-3);
+  margin-top: -1px;
+}
 .model .note { margin-top: 8px; font: 400 11.5px/1.45 var(--sans); color: var(--text-3); }
 .model .miss { color: var(--text-3); }
 .model .act { margin-left: auto; display: flex; align-items: center; gap: 8px; }

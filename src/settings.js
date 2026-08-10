@@ -62,6 +62,27 @@ if (listen) {
     reload();
   }).catch(e => console.error('engine listen rejected', e));
 
+  // Fired by both the manual download and the background watcher, so the card
+  // reflects an update that started without anyone opening this window.
+  listen('verba:update', ({ payload }) => {
+    const card = $('up-card');
+    if (!card) return;
+
+    if (!payload.done) {
+      card.classList.add('downloading');
+      const pct = payload.total ? (payload.received / payload.total) * 100 : 0;
+      $('up-fill').style.width = `${pct.toFixed(1)}%`;
+      $('up-txt').textContent =
+        `${(payload.received / 1048576).toFixed(0)} / ${(payload.total / 1048576).toFixed(0)} MB`;
+      return;
+    }
+
+    card.classList.remove('downloading');
+    if (payload.error) { toast(`Update failed: ${payload.error}`); reload(); return; }
+    toast(`Version ${payload.version} ready`);
+    reload();
+  }).catch(e => console.error('update listen rejected', e));
+
   listen('verba:llm-pull', ({ payload }) => {
     const row = document.querySelector(`.llm[data-name="${CSS.escape(payload.name)}"]`);
     if (!row) return;
@@ -226,6 +247,7 @@ function render() {
   drawHotkey(cfg.hotkey, false);
   $('launch_at_startup').classList.toggle('on', cfg.launch_at_startup);
   $('preload_model').classList.toggle('on', cfg.preload_model);
+  $('auto_update').classList.toggle('on', cfg.auto_update);
   $('language').value = cfg.language;
   $('microphone').value = cfg.microphone ?? '';
 
@@ -294,6 +316,7 @@ async function boot() {
 
   bindToggle('launch_at_startup', 'Startup preference saved');
   bindToggle('preload_model', 'Preload preference saved');
+  bindToggle('auto_update', 'Update preference saved');
 
   $('threads').max = hw.threads;
   $('threads').oninput = e => {
@@ -351,7 +374,6 @@ async function boot() {
 
   // Models.
   const wrap = $('models');
-  const widest = Math.max(...s.models.map(x => x.size_mb));
   const engineOf = id => s.engines.find(e => e.id === id);
 
   s.models.forEach(m => {
@@ -371,7 +393,7 @@ async function boot() {
         ${recommended ? '<span class="rec">RECOMMENDED</span>' : ''}
         <span class="act"></span>
       </div>
-      <div class="bar"><div style="width:${Math.round(m.size_mb / widest * 100)}%"></div></div>
+      ${ratingBars(m)}
       <div class="note${built && m.installed ? '' : ' miss'}">
         ${m.size_mb} MB · needs ~${(m.needs_mb / 1024).toFixed(1)} GB · ${m.license} · ${m.note}
       </div>
@@ -429,8 +451,87 @@ async function boot() {
 
   $('logpath').textContent = s.log_path;
   $('cfgpath').textContent = s.config_path;
+  $('about-sub').textContent = `Verba ${s.version} — local-first speech to text.`;
+  buildUpdates(s);
 
   render();
+}
+
+/* --- updates -------------------------------------------------------------- */
+
+/** The release the last check found, held so the download button can use it. */
+let pendingUpdate = null;
+
+/**
+ * Three resting states: up to date, one available, one already staged.
+ *
+ * A staged update is not offered as a download again — the background watcher
+ * may have fetched it already, and re-downloading 70 MB because the window was
+ * opened would be a waste the user never asked for.
+ */
+function buildUpdates(s) {
+  const dot = $('up-dot'), note = $('up-note'), action = $('up-action');
+  action.hidden = true;
+  action.disabled = false;
+  dot.className = 'dot';
+
+  if (s.update_staged) {
+    dot.classList.add('up');
+    note.textContent =
+      'A new version is downloaded and will be installed once you have stopped dictating.';
+    action.hidden = false;
+    action.textContent = 'Restart now';
+    action.onclick = () => {
+      action.disabled = true;
+      action.textContent = 'Restarting…';
+      // The window goes away with the process, so there is no success path to
+      // handle here — only the failure to report.
+      invoke('apply_update').catch(e => {
+        action.disabled = false;
+        action.textContent = 'Restart now';
+        toast(`${e}`);
+      });
+    };
+    return;
+  }
+
+  note.textContent = `Running ${s.version}.`;
+  action.hidden = false;
+  action.textContent = 'Check now';
+  action.onclick = () => {
+    action.disabled = true;
+    action.textContent = 'Checking…';
+    invoke('check_update')
+      .then(avail => {
+        action.disabled = false;
+        action.textContent = 'Check now';
+        if (!avail) {
+          dot.className = 'dot up';
+          note.textContent = `${s.version} is the latest version.`;
+          return;
+        }
+        pendingUpdate = avail;
+        dot.className = 'dot down';
+        note.textContent =
+          `Version ${avail.version} is available (${(avail.size / 1048576).toFixed(0)} MB).`;
+        action.textContent = 'Download';
+        action.onclick = () => {
+          action.disabled = true;
+          $('up-card').classList.add('downloading');
+          invoke('download_update', { avail: pendingUpdate }).catch(err => {
+            action.disabled = false;
+            $('up-card').classList.remove('downloading');
+            toast(`${err}`);
+          });
+        };
+      })
+      .catch(e => {
+        action.disabled = false;
+        action.textContent = 'Check now';
+        dot.className = 'dot gone';
+        note.textContent = `${e}`;
+      });
+  };
 }
 
 /* --- modes, routing and vocabulary --------------------------------------- */

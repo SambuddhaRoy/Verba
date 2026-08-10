@@ -182,7 +182,28 @@
     <!-- About -->
     <div class="panel" id="p-about">
       <h1>About</h1>
-      <p class="sub">Verba 0.1.0 — local-first speech to text.</p>
+      <p class="sub" id="about-sub">Verba — local-first speech to text.</p>
+
+      <div class="card up" id="up-card">
+        <div class="row">
+          <div class="grow">
+            <b>Updates <span class="dot" id="up-dot"></span></b>
+            <small id="up-note">Checking&hellip;</small>
+          </div>
+          <button class="btn" id="up-action" hidden></button>
+        </div>
+        <div class="dl"><div class="dl-fill" id="up-fill"></div><span class="dl-txt" id="up-txt"></span></div>
+      </div>
+
+      <div class="card row">
+        <div class="grow">
+          <b>Update automatically</b>
+          <small>Install new versions from GitHub. Verba only restarts once you have
+            stopped dictating.</small>
+        </div>
+        <button class="tgl" id="auto_update"></button>
+      </div>
+
       <div class="card"><div class="grow"><b>Log file</b><small class="mono" id="logpath">…</small></div></div>
       <div class="card"><div class="grow"><b>Config</b><small class="mono" id="cfgpath">…</small></div></div>
     </div>
@@ -190,6 +211,7 @@
 </main>
 
 <div id="toast"></div>
+<script src="ratings.js"></script>
 <script src="settings.js"></script>
 </body>
 </html>

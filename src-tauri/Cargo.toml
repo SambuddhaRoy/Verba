@@ -1,6 +1,6 @@
 [package]
 name = "verba"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -21,7 +21,7 @@ tauri-build = "2.6.3"
 
 [features]
 # Owning the feature rather than enabling whisper-rs/vulkan directly lets the
-# code ask, via cfg, whether this build can actually reach the GPU — a
+# code ask, via cfg, whether this build can actually reach the GPU â€” a
 # Vulkan-capable card is useless if the binary has no Vulkan backend.
 # Building without it needs no Vulkan SDK and produces a CPU-only binary.
 default = ["gpu-vulkan"]

@@ -242,6 +242,10 @@ pub struct Config {
     /// the flow once — which is the right outcome, since it is also where the
     /// rewrite model gets chosen.
     pub onboarded: bool,
+    /// Check GitHub for a newer release and install it. On by default: a
+    /// dictation tool that silently rots is worse than one that restarts
+    /// itself occasionally, and the restart only ever happens while idle.
+    pub auto_update: bool,
     /// "whisper.cpp" or "faster-whisper".
     pub engine: String,
     /// Model file name, resolved against the models directory.
@@ -284,6 +288,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             onboarded: false,
+            auto_update: true,
             engine: "whisper.cpp".into(),
             model: "ggml-small.en-q5_1.bin".into(),
             microphone: None,
@@ -434,49 +439,70 @@ pub struct ModelInfo {
     pub needs_mb: u32,
     pub note: &'static str,
     pub license: &'static str,
+    /// 0-100 guidance for comparing rows, not a measurement. See `Entry`.
+    pub accuracy: u8,
+    /// The model's own speed rating, on hardware that can hold it.
+    pub speed: u8,
+    /// Speed re-rated for this machine — the same model is quick on a GPU and
+    /// slow when it has to spill to CPU, and showing one number for both would
+    /// recommend a large model to a laptop that will crawl under it.
+    pub speed_here: u8,
+    /// Whether this machine has the memory to run it at all.
+    pub fits: bool,
     /// True if the model streams natively, rather than needing a full buffer.
     pub streaming: bool,
     pub url: String,
     pub installed: bool,
 }
 
-/// file, display name, engine, size MB, needs MB, streaming, licence, note
-type Entry = (&'static str, &'static str, &'static str, u32, u32, bool, &'static str, &'static str);
+/// file, display name, engine, size MB, needs MB, streaming, licence, note,
+/// accuracy, speed.
+///
+/// The last two are 0-100 guidance for comparing rows against each other, not
+/// measurements: accuracy tracks published English word-error rates, speed
+/// tracks throughput on hardware that can actually hold the model. They are
+/// deliberately coarse, and `models_for()` re-rates speed for the machine in
+/// front of you, because a large model is quick on a GPU and painful without
+/// one. Their relative ordering is pinned by a test — a transposed pair here
+/// would be invisible in the UI but would recommend the wrong model forever.
+type Entry = (
+    &'static str, &'static str, &'static str, u32, u32, bool, &'static str, &'static str, u8, u8,
+);
 
 const CATALOGUE: &[Entry] = &[
     // --- whisper.cpp, GGML format -----------------------------------------
     ("ggml-tiny.en-q5_1.bin", "Whisper Tiny (English)", "whisper.cpp", 31, 400, false, "MIT",
-     "Fastest there is. Noticeably weaker on names and technical terms."),
+     "Fastest there is. Noticeably weaker on names and technical terms.", 55, 97),
     ("ggml-base.en-q5_1.bin", "Whisper Base (English)", "whisper.cpp", 57, 600, false, "MIT",
-     "Quick on any machine. Fine for short, plain dictation."),
+     "Quick on any machine. Fine for short, plain dictation.", 64, 92),
     ("ggml-small.en-q5_1.bin", "Whisper Small (English)", "whisper.cpp", 181, 1100, false, "MIT",
-     "Best accuracy per megabyte. The sensible default on CPU."),
+     "Best accuracy per megabyte. The sensible default on CPU.", 78, 80),
     ("ggml-small-q5_1.bin", "Whisper Small (multilingual)", "whisper.cpp", 181, 1200, false, "MIT",
-     "Small, with 99 languages instead of English only."),
+     "Small, with 99 languages instead of English only.", 74, 78),
     ("ggml-medium.en-q5_0.bin", "Whisper Medium (English)", "whisper.cpp", 514, 2600, false, "MIT",
-     "Better on jargon and accents. Wants GPU offload."),
+     "Better on jargon and accents. Wants GPU offload.", 87, 55),
     ("ggml-large-v3-turbo-q5_0.bin", "Whisper Large v3 Turbo", "whisper.cpp", 547, 3200, false, "MIT",
-     "Four-layer decoder: near-large accuracy at a fraction of the cost. Multilingual."),
+     "Four-layer decoder: near-large accuracy at a fraction of the cost. Multilingual.", 93, 68),
     ("ggml-large-v3-turbo.bin", "Whisper Large v3 Turbo (f16)", "whisper.cpp", 1549, 4200, false, "MIT",
-     "Unquantised Turbo. Marginal gain over q5 unless you have VRAM to spare."),
+     "Unquantised Turbo. Marginal gain over q5 unless you have VRAM to spare.", 94, 60),
     ("ggml-large-v3-q5_0.bin", "Whisper Large v3", "whisper.cpp", 1031, 4600, false, "MIT",
-     "Most accurate Whisper. Roughly 6x slower than Turbo for a small gain."),
+     "Most accurate Whisper. Roughly 6x slower than Turbo for a small gain.", 96, 30),
 
     // --- faster-whisper, CTranslate2 --------------------------------------
     // Named by Hugging Face id, not a file: faster-whisper fetches and caches
     // its own weights on first use, so there is nothing here to download.
     ("tiny.en", "FW Tiny (English)", "faster-whisper", 75, 500, false, "MIT",
-     "Fetched automatically on first use. Fastest, least accurate."),
+     "Fetched automatically on first use. Fastest, least accurate.", 55, 98),
     ("base.en", "FW Base (English)", "faster-whisper", 145, 700, false, "MIT",
-     "Fetched automatically on first use."),
+     "Fetched automatically on first use.", 64, 94),
     ("small.en", "FW Small (English)", "faster-whisper", 484, 1400, false, "MIT",
-     "Fetched automatically on first use. The usual default."),
+     "Fetched automatically on first use. The usual default.", 78, 85),
     ("medium.en", "FW Medium (English)", "faster-whisper", 1530, 3000, false, "MIT",
-     "Fetched automatically on first use. Wants a CUDA GPU."),
+     "Fetched automatically on first use. Wants a CUDA GPU.", 87, 62),
     ("large-v3", "FW Large v3", "faster-whisper", 3090, 5000, false, "MIT",
-     "Fetched automatically on first use. CUDA strongly recommended."),
+     "Fetched automatically on first use. CUDA strongly recommended.", 96, 38),
     ("distil-large-v3", "FW Distil-Large v3", "faster-whisper", 1510, 3000, false, "MIT",
-     "Distilled: close to Large v3 accuracy at roughly half the size. English."),
+     "Distilled: close to Large v3 accuracy at roughly half the size. English.", 92, 70),
 
     // --- sherpa-onnx: Parakeet and Moonshine ------------------------------
     // Names are the release archive stems, which are also the directory names
@@ -485,19 +511,19 @@ const CATALOGUE: &[Entry] = &[
     // builds, but those use a different recogniser that is not wired up.
     ("sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8",
      "Parakeet TDT 110M", "parakeet", 103, 700, false, "CC-BY-4.0",
-     "Roughly 90x realtime on CPU alone — far faster than any Whisper build. English."),
+     "Roughly 90x realtime on CPU alone — far faster than any Whisper build. English.", 76, 99),
     ("sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
      "Parakeet TDT 0.6B v2", "parakeet", 460, 1800, false, "CC-BY-4.0",
-     "Tops several English accuracy leaderboards and still runs many times faster than realtime."),
+     "Tops several English accuracy leaderboards and still runs many times faster than realtime.", 95, 90),
     ("sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
      "Parakeet TDT 0.6B v3", "parakeet", 465, 1800, false, "CC-BY-4.0",
-     "As v2, extended to 25 European languages."),
+     "As v2, extended to 25 European languages.", 94, 88),
     ("sherpa-onnx-moonshine-tiny-en-int8",
      "Moonshine Tiny", "parakeet", 103, 500, false, "MIT",
-     "Built for short utterances: cost scales with audio length, not a fixed window. English."),
+     "Built for short utterances: cost scales with audio length, not a fixed window. English.", 60, 98),
     ("sherpa-onnx-moonshine-base-en-int8",
      "Moonshine Base", "parakeet", 239, 900, false, "MIT",
-     "More accurate Moonshine, still very quick on CPU. English."),
+     "More accurate Moonshine, still very quick on CPU. English.", 71, 94),
 ];
 
 /// sherpa-onnx publishes its models as release archives on one tag.
@@ -568,11 +594,24 @@ pub fn installable_engines() -> Vec<&'static str> {
     vec!["faster-whisper", "parakeet"]
 }
 
+/// The catalogue with no machine in mind. `speed_here` is the model's own
+/// rating and `fits` is optimistic; use `catalogue_for()` wherever hardware is
+/// known, which is everywhere the user actually sees this.
 pub fn catalogue() -> Vec<ModelInfo> {
+    catalogue_with(None)
+}
+
+/// The catalogue rated for one machine: speed adjusted for whether the model
+/// can be held on the GPU, and `fits` set from real memory.
+pub fn catalogue_for(hw: &crate::hardware::Hardware) -> Vec<ModelInfo> {
+    catalogue_with(Some(hw))
+}
+
+fn catalogue_with(hw: Option<&crate::hardware::Hardware>) -> Vec<ModelInfo> {
     let dir = models_dir();
     CATALOGUE
         .iter()
-        .map(|(file, name, engine, size_mb, needs_mb, streaming, license, note)| ModelInfo {
+        .map(|(file, name, engine, size_mb, needs_mb, streaming, license, note, accuracy, speed)| ModelInfo {
             file: (*file).into(),
             name: (*name).into(),
             engine,
@@ -581,6 +620,16 @@ pub fn catalogue() -> Vec<ModelInfo> {
             note,
             license,
             streaming: *streaming,
+            accuracy: *accuracy,
+            speed: *speed,
+            speed_here: match hw {
+                Some(hw) => crate::hardware::speed_on(hw, *needs_mb, *speed),
+                None => *speed,
+            },
+            fits: match hw {
+                Some(hw) => crate::hardware::fits(hw, *needs_mb),
+                None => true,
+            },
             url: match *engine {
                 "whisper.cpp" => {
                     format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{file}")

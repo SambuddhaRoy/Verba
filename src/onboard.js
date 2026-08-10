@@ -207,6 +207,13 @@ function buildModel() {
   // the recommendation actually named.
   card.querySelector('.rec-tag').hidden = rec.file !== s.recommendation.model;
 
+  // The two bars, and why this row was picked. The reason names the actual
+  // hardware, which is what makes the recommendation feel like a decision
+  // rather than a default.
+  $('rec-rates').innerHTML = ratingBars(rec);
+  $('rec-why').textContent = rec.file === s.recommendation.model
+    ? `${s.recommendation.reason}.` : '';
+
   card.dataset.file = rec.file;
   $('rec-name').textContent = rec.name;
   $('rec-note').textContent =
@@ -245,8 +252,13 @@ function buildModel() {
   usable.forEach(m => {
     const row = document.createElement('div');
     row.className = 'card row';
+    // Bars here too: the fold is where someone goes specifically to weigh one
+    // model against another, so it is the last place to hide the comparison.
+    row.className = 'card';
     row.innerHTML =
-      `<div class="grow"><b>${m.name}</b><small>${m.size_mb} MB · ${m.note}</small></div>`;
+      `<div class="row"><div class="grow"><b>${m.name}</b>` +
+      `<small>${m.size_mb} MB · ${m.note}</small></div><span class="act"></span></div>` +
+      ratingBars(m);
     const btn = document.createElement('button');
     btn.className = 'btn tiny';
     if (m.file === cfg.model) {
@@ -269,7 +281,7 @@ function buildModel() {
         });
       };
     }
-    row.appendChild(btn);
+    row.querySelector('.act').appendChild(btn);
     host.appendChild(row);
   });
 }
