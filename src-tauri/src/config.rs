@@ -237,6 +237,12 @@ fn default_rules() -> Vec<AppRule> {
 #[serde(default)]
 pub struct Config {
     /// "whisper.cpp" or "faster-whisper".
+    /// False until the first-run flow has been completed or skipped. Existing
+    /// configs predate the field and deserialise to false, so an upgrade shows
+    /// the flow once — which is the right outcome, since it is also where the
+    /// rewrite model gets chosen.
+    pub onboarded: bool,
+    /// "whisper.cpp" or "faster-whisper".
     pub engine: String,
     /// Model file name, resolved against the models directory.
     pub model: String,
@@ -277,6 +283,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            onboarded: false,
             engine: "whisper.cpp".into(),
             model: "ggml-small.en-q5_1.bin".into(),
             microphone: None,
@@ -297,7 +304,13 @@ impl Default for Config {
             rules: default_rules(),
             vocabulary: Vec::new(),
             llm_url: "http://127.0.0.1:11434".into(),
-            llm_model: "qwen3.5:9b".into(),
+            // Deliberately empty rather than a guess. Four of the default modes
+            // ask for a rewrite, so naming a model here would have every fresh
+            // install fire a request for weights it does not have — a failure
+            // that is not a transport error, so the unreachable cache never
+            // suppresses it and every dictation pays for it. Empty means "no
+            // rewrite"; onboarding and settings fill it in once a model exists.
+            llm_model: String::new(),
             fillers: ["um", "uh", "erm", "uhm", "hmm", "mhm"]
                 .iter()
                 .map(|s| s.to_string())

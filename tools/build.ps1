@@ -38,7 +38,24 @@ if ($built -ne 0) { Write-Error "cargo build failed ($built)"; exit 1 }
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path (Join-Path $dist 'models') | Out-Null
 
-Copy-Item (Join-Path $env:CARGO_TARGET_DIR 'release\verba.exe') (Join-Path $dist 'Verba.exe') -Force
+# Windows locks a running image, so a live Verba makes the copy below fail.
+# Without -ErrorAction Stop that failure is silent and the script goes on to
+# announce a "ready" build that is actually the previous one — which cost an
+# afternoon once already.
+$exe = Join-Path $dist 'Verba.exe'
+Get-Process -Name Verba -EA SilentlyContinue |
+  Where-Object { $_.Path -eq $exe } |
+  ForEach-Object {
+    Write-Host "stopping running Verba (pid $($_.Id)) so the exe can be replaced"
+    $_.Kill(); $_.WaitForExit(5000)
+  }
+
+try {
+  Copy-Item (Join-Path $env:CARGO_TARGET_DIR 'release\verba.exe') $exe -Force -ErrorAction Stop
+} catch {
+  Write-Error "could not replace dist\Verba.exe: $($_.Exception.Message)"
+  exit 1
+}
 
 # Only copy models that are missing or stale - they are large.
 Get-ChildItem (Join-Path $root 'models') -Filter '*.bin' -EA SilentlyContinue | ForEach-Object {

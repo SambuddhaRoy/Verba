@@ -402,6 +402,16 @@ fn hotkey_label(hk: &config::Hotkey) -> String {
     parts.join("+")
 }
 
+/// True when the window that had focus belongs to this process's own exe.
+/// `focus::foreground()` reports the bare file name, so this compares like
+/// with like.
+fn is_own_window(exe: &str) -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|f| f.to_string_lossy().into_owned()))
+        .is_some_and(|own| own.eq_ignore_ascii_case(exe))
+}
+
 fn show_settings(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.show();
@@ -445,7 +455,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
     // Warm the rewrite model off the critical path. Ollama loads weights on
     // first request, not at startup, so without this the first dictation after
     // a cold start waits through the load and times out into the fallback.
-    if cfg.modes.iter().any(|m| m.llm) {
+    if !cfg.llm_model.trim().is_empty() && cfg.modes.iter().any(|m| m.llm) {
         let warm = cfg.clone();
         std::thread::Builder::new()
             .name("llm-warm".into())
@@ -628,7 +638,15 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                     s.mode = Some(mode_name);
                     emit(&app, s);
 
-                    if let Err(e) = inject::insert(&formatted) {
+                    // Verba's own windows are never an insertion target. The
+                    // onboarding try-out has the user dictate with this app
+                    // focused on purpose, and synthesising unicode into our own
+                    // WebView would at best go nowhere and at worst trip its
+                    // key handling. The overlay still shows the text, which is
+                    // the whole point of that step.
+                    if is_own_window(&target.exe) {
+                        log!("  not inserted: Verba had focus");
+                    } else if let Err(e) = inject::insert(&formatted) {
                         log!("  insert failed: {e}");
                     }
                     hide_at = Some(Instant::now() + LINGER);
@@ -952,6 +970,9 @@ fn main() -> Result<()> {
     let demo = (arg1 == Some("--overlay-test"))
         .then(|| args.get(2).cloned().unwrap_or_else(|| config::load().visual));
     let open_settings = arg1 == Some("--settings");
+    // `--onboard` replays the first-run flow without editing the config by
+    // hand, which is the only practical way to test changes to it.
+    let show_onboarding = arg1 == Some("--onboard") || !config::load().onboarded;
 
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -996,6 +1017,16 @@ fn main() -> Result<()> {
                 show_settings(app.handle());
             }
 
+            // First run, or an upgrade from before the flag existed. Shown
+            // here rather than from the engine thread so it appears while the
+            // model is still loading instead of after it.
+            if show_onboarding {
+                if let Some(w) = app.get_webview_window("onboard") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+
             let handle = app.handle().clone();
             // The audio stream is !Send on Windows, so the engine owns the
             // recorder and hotkey receiver together on one thread.
@@ -1013,4 +1044,28 @@ fn main() -> Result<()> {
         })
         .run(tauri::generate_context!())
         .map_err(|e| anyhow!("tauri: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_own_window;
+
+    /// The guard that stops a dictation typing into Verba's own WebView. It
+    /// compares bare file names because that is what focus::foreground()
+    /// reports, and Windows paths are case-insensitive.
+    #[test]
+    fn own_window_is_recognised_by_name() {
+        let own = std::env::current_exe().unwrap();
+        let name = own.file_name().unwrap().to_string_lossy().into_owned();
+
+        assert!(is_own_window(&name), "the running exe must match itself");
+        assert!(is_own_window(&name.to_uppercase()), "matching must ignore case");
+
+        assert!(!is_own_window("notepad.exe"));
+        assert!(!is_own_window(""), "an unreadable foreground exe must not count as ours");
+        // A full path is not what foreground() returns; if that ever changes,
+        // this guard would silently stop firing and dictation would type into
+        // our own window again.
+        assert!(!is_own_window(&own.to_string_lossy()));
+    }
 }
