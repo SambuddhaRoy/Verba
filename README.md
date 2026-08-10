@@ -23,6 +23,20 @@ certificate costs several hundred dollars a year), so SmartScreen shows
 *"Windows protected your PC"*. Choose **More info → Run anyway**. If you would rather
 not trust a binary from a stranger, build it yourself — see below.
 
+### Updates
+
+Verba checks GitHub for a new release shortly after launch and every six hours
+after that. When one appears it downloads it in the background, verifies it against
+the SHA-256 GitHub publishes for the asset, and swaps it in — but only once you have
+gone two minutes without dictating, so an update can never interrupt you mid-sentence.
+Turn it off under **Settings → About → Update automatically**, or check by hand from
+the same panel.
+
+A caveat worth stating plainly: the checksum and the download come from the same
+place, so this protects against a corrupted or truncated transfer, not against a
+compromised GitHub account. Real protection would need a signature made with a key
+that never touches GitHub, which this project does not have yet.
+
 ### Uninstall
 
 Quit from the tray, delete `Verba.exe`, and delete `%LOCALAPPDATA%\Verba` if you want
@@ -82,6 +96,16 @@ Models are downloaded in-app and stored in `%LOCALAPPDATA%\Verba\models`.
 | Whisper Small (English) | 181 MB | The sensible default on modest hardware |
 | Whisper Large v3 Turbo | 547 MB | Near-large accuracy, multilingual |
 | Parakeet TDT 0.6B v2 | 460 MB | Tops several English accuracy leaderboards |
+
+Every model carries an **accuracy** and a **speed** bar so the trade-off between them
+is visible rather than something you have to already know. The two are deliberately
+kept separate — a single blended score would hide exactly the decision you are making.
+Speed is rated for *your* machine: the same model is quick with GPU offload and slow
+without it, so a model that would have to spill to CPU says so under its bar.
+
+Verba picks a recommendation from those same numbers, weighted slightly towards
+accuracy, and skips anything that will not fit in memory. The reason names your actual
+hardware, so it reads as a decision rather than a default.
 
 Three engines are supported. **whisper.cpp** is compiled into the binary and needs
 nothing extra. **Parakeet** (via sherpa-onnx) and **faster-whisper** run as Python
@@ -157,6 +181,8 @@ that could not be diagnosed by reading the code.
 | `--inject-test <text>` | Text insertion with no model and no microphone |
 | `--overlay-test [visual]` | Drive the overlay through its states |
 | `--onboard` | Replay the first-run flow |
+| `--check-update` | What the background watcher sees, without waiting for it |
+| `--self-update` | Run the whole cycle now: check, download, verify, swap, relaunch |
 
 ---
 
