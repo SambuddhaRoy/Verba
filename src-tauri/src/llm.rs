@@ -49,6 +49,12 @@ fn note_reachability(ok: bool) {
 }
 
 pub fn rewrite(cfg: &Config, instructions: &str, text: &str) -> Result<String> {
+    // No model chosen yet — the default state of a fresh install. Checked
+    // before ensure_running() so a first run never starts a server it has
+    // nothing to ask.
+    if cfg.llm_model.trim().is_empty() {
+        return Err(anyhow!("no rewrite model selected"));
+    }
     if recently_unreachable() {
         return Err(anyhow!("skipped: {} was unreachable moments ago", cfg.llm_url));
     }

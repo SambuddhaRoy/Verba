@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Overlay receives engine state; settings drives its own frameless window. Without a capability granting core:event, listen() is denied by the ACL and the overlay never leaves its idle state.",
-  "windows": ["overlay", "settings"],
+  "windows": ["overlay", "settings", "onboard"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

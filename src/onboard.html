@@ -1,0 +1,161 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Welcome to Verba</title>
+<link rel="stylesheet" href="settings.css">
+<link rel="stylesheet" href="onboard.css">
+</head>
+<body>
+
+<header data-tauri-drag-region>
+  <span class="mark"></span>
+  <span class="title" data-tauri-drag-region>Welcome to Verba</span>
+  <div class="winbtns">
+    <button id="close" title="Close">&#10005;</button>
+  </div>
+</header>
+
+<div class="dots" id="dots"></div>
+
+<main class="ob">
+
+  <!-- 1 ------------------------------------------------------------ welcome -->
+  <section class="step on" data-step="welcome">
+    <h1>Dictate anywhere on Windows</h1>
+    <p class="sub">Hold a key, speak, let go. Your words appear wherever the caret is
+      &mdash; any app, any text box.</p>
+
+    <div class="pitch">
+      <div class="card pt">
+        <b>On&#8209;device</b>
+        <small>Speech never leaves this machine. No account, no cloud, no per&#8209;minute cost.</small>
+      </div>
+      <div class="card pt">
+        <b>Knows the app</b>
+        <small>Formats as an email in Outlook, as notes in Obsidian, as a comment in your editor.</small>
+      </div>
+      <div class="card pt">
+        <b>Yours to change</b>
+        <small>Every rule, mode and phrase is editable in settings afterwards.</small>
+      </div>
+    </div>
+
+    <p class="fine">This takes about a minute. You can change anything later.</p>
+  </section>
+
+  <!-- 2 --------------------------------------------------------------- mic -->
+  <section class="step" data-step="mic">
+    <h1>Choose a microphone</h1>
+    <p class="sub">Whichever you pick, Verba listens only while the hotkey is held.</p>
+
+    <div class="card row">
+      <div class="grow">
+        <b>Input device</b>
+        <small id="mic-note">Using the Windows default.</small>
+      </div>
+      <select id="mic"></select>
+    </div>
+
+    <p class="fine">Not sure? Leave it on the default &mdash; you will test it in a moment,
+      and settings can change it at any time.</p>
+  </section>
+
+  <!-- 3 ------------------------------------------------------------- model -->
+  <section class="step" data-step="model">
+    <h1>Download a speech model</h1>
+    <p class="sub" id="model-sub">Verba needs one model file to transcribe. This is the only
+      download it requires.</p>
+
+    <div class="card rec" id="rec-card">
+      <div class="row">
+        <div class="grow">
+          <b id="rec-name">&mdash;</b>
+          <small id="rec-note">Matching your hardware&hellip;</small>
+        </div>
+        <span class="rec-tag">RECOMMENDED</span>
+      </div>
+      <div class="dl"><div class="dl-fill" id="rec-fill"></div><span class="dl-txt" id="rec-txt"></span></div>
+      <button class="btn primary" id="rec-get">Download</button>
+    </div>
+
+    <details class="more">
+      <summary>Pick a different model</summary>
+      <div id="model-list"></div>
+    </details>
+  </section>
+
+  <!-- 4 --------------------------------------------------------- rewriting -->
+  <section class="step" data-step="llm">
+    <h1>Polish with a local LLM</h1>
+    <p class="sub">Optional. A small language model can turn dictated speech into
+      properly written text, formatted for whichever app you are in.</p>
+
+    <div class="card row">
+      <div class="grow">
+        <b>Ollama <span class="dot" id="ob-dot"></span> <span class="mono tiny" id="ob-state"></span></b>
+        <small id="ob-note">Checking&hellip;</small>
+      </div>
+      <button class="btn" id="ob-action" hidden></button>
+    </div>
+
+    <div id="llm-wrap" hidden>
+      <div class="card rec">
+        <div class="row">
+          <div class="grow">
+            <b id="lm-name">&mdash;</b>
+            <small id="lm-note"></small>
+          </div>
+          <span class="rec-tag">RECOMMENDED</span>
+        </div>
+        <div class="dl"><div class="dl-fill" id="lm-fill"></div><span class="dl-txt" id="lm-txt"></span></div>
+        <button class="btn primary" id="lm-get">Download</button>
+      </div>
+    </div>
+
+    <p class="fine">Skip this and Verba still cleans up filler words, punctuation and
+      capitalisation on its own.</p>
+  </section>
+
+  <!-- 5 --------------------------------------------------------------- try -->
+  <section class="step" data-step="try">
+    <h1>Try it</h1>
+    <p class="sub">Hold the hotkey, say a sentence, then let go.</p>
+
+    <div class="keycap" id="try-keys"></div>
+
+    <div class="card tryout">
+      <div class="tstate" id="try-state">Waiting for you to hold the hotkey&hellip;</div>
+      <div class="theard" id="try-heard"></div>
+    </div>
+
+    <p class="fine">Nothing is inserted while this window has focus &mdash; the text below is
+      what Verba heard.</p>
+  </section>
+
+  <!-- 6 -------------------------------------------------------------- done -->
+  <section class="step" data-step="done">
+    <h1>You are set up</h1>
+    <p class="sub">Verba lives in the system tray. Right&#8209;click it for settings, or to quit.</p>
+
+    <div class="card row">
+      <div class="grow"><b>Launch at startup</b><small>Start Verba when you sign in to Windows.</small></div>
+      <button class="tgl" id="startup"></button>
+    </div>
+
+    <div class="card summary" id="summary"></div>
+  </section>
+
+</main>
+
+<footer>
+  <button class="btn ghost" id="back">Back</button>
+  <span class="grow"></span>
+  <button class="btn ghost" id="skip">Skip</button>
+  <button class="btn primary" id="next">Continue</button>
+</footer>
+
+<div id="toast"></div>
+<script src="onboard.js"></script>
+</body>
+</html>

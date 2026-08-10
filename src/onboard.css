@@ -1,0 +1,178 @@
+/* First-run flow.
+ *
+ * Deliberately thin: settings.css already carries the material — the acrylic
+ * page, the card, the toggle, the accent variables. This file adds only the
+ * things a wizard needs and settings has no use for: the step rail, the paging
+ * transition, and the footer.
+ */
+
+.dots {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  padding: 2px 0 10px;
+}
+.dots i {
+  width: 20px; height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .12);
+  transition: background .25s ease;
+}
+.dots i.on   { background: var(--accent-light); }
+.dots i.past { background: rgba(255, 255, 255, .30); }
+
+main.ob {
+  /* The footer and header are fixed height; this is what is left. Steps scroll
+     inside it rather than growing the window, which cannot resize. */
+  height: calc(100% - 44px - 15px - 60px);
+  overflow-y: auto;
+  padding: 6px 34px 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Centred vertically via auto margins rather than justify-content: with
+   overflow-y the latter clips the top of anything taller than the box, and the
+   model step grows past it once the "pick a different model" fold is open. */
+.step.on { margin-block: auto; }
+
+/* Reusing settings.css brings its bare-element selectors along, and there
+   `section` is the scrolling content pane: flex: 1, its own padding, its own
+   overflow. A step is none of those — inheriting flex: 1 stretched it to the
+   full column height, which silently defeated the auto-margin centring below. */
+.step {
+  display: none;
+  flex: none;
+  padding: 0;
+  overflow: visible;
+}
+.step.on {
+  display: block;
+  animation: rise .22s ease both;
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.step h1 { font: 600 22px var(--sans); margin: 6px 0 6px; }
+.step .sub { color: var(--text-2); font-size: 13px; margin: 0 0 18px; max-width: 54ch; }
+.fine { color: var(--text-3); font-size: 11.5px; margin-top: 14px; max-width: 56ch; }
+
+/* ------------------------------------------------------------- welcome */
+
+.pitch { display: grid; gap: 10px; }
+.card.pt { display: block; padding: 13px 15px; }
+.card.pt b { display: block; margin-bottom: 3px; font-size: 13px; }
+.card.pt small { color: var(--text-2); font-size: 12px; line-height: 1.45; }
+
+/* ------------------------------------------------- recommended download */
+
+.card.rec { display: block; padding: 14px 15px; }
+.card.rec .row { padding: 0; background: none; box-shadow: none; }
+.rec-tag {
+  font: 600 9.5px var(--sans);
+  letter-spacing: .09em;
+  color: var(--accent-light);
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(var(--accent-rgb), .13);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .22);
+  white-space: nowrap;
+}
+
+/* Progress track. Zero height until a transfer starts, so the card does not
+   reserve empty space for something that may never run. */
+.dl {
+  position: relative;
+  height: 0;
+  margin: 0;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .07);
+  overflow: hidden;
+  transition: height .2s ease, margin .2s ease;
+}
+.downloading .dl { height: 4px; margin: 12px 0 4px; }
+.dl-fill { height: 100%; width: 0; background: var(--accent-light); transition: width .3s ease; }
+.dl-txt {
+  position: absolute; right: 0; top: 8px;
+  font: 400 10.5px var(--mono);
+  color: var(--text-3);
+}
+.downloading .dl-txt { top: 6px; }
+
+.card.rec .btn.primary { margin-top: 12px; width: 100%; }
+.downloading .btn.primary, .card.rec.have .btn.primary { display: none; }
+
+.card.rec.have::after {
+  content: "Installed and selected";
+  display: block;
+  margin-top: 10px;
+  font: 500 11.5px var(--sans);
+  color: var(--accent-light);
+}
+
+details.more { margin-top: 16px; }
+details.more summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 6px 0;
+}
+details.more summary:hover { color: var(--text); }
+#model-list { display: grid; gap: 7px; margin-top: 8px; }
+
+/* ----------------------------------------------------------------- try */
+
+.keycap { display: flex; gap: 6px; margin-bottom: 16px; }
+.keycap kbd {
+  font: 600 12px var(--sans);
+  padding: 7px 12px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .06);
+  box-shadow: var(--spec2), var(--hair), 0 2px 6px rgba(0, 0, 0, .35);
+}
+
+.card.tryout { display: block; min-height: 108px; padding: 15px; }
+.tstate { font-size: 12px; color: var(--text-2); }
+.tstate.live { color: var(--accent-light); }
+.tstate.ok   { color: var(--accent-light); font-weight: 600; }
+.theard {
+  margin-top: 10px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text);
+  min-height: 22px;
+  user-select: text;
+}
+
+/* ---------------------------------------------------------------- done */
+
+.card.summary { display: block; padding: 13px 15px; margin-top: 10px; }
+.card.summary div { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+.card.summary span:first-child { color: var(--text-2); }
+.card.summary span:last-child  { font-family: var(--mono); font-size: 11.5px; }
+
+/* -------------------------------------------------------------- footer */
+
+footer {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 26px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+footer .grow { flex: 1; }
+.btn.ghost { background: none; box-shadow: none; color: var(--text-2); }
+.btn.ghost:hover { color: var(--text); background: rgba(255, 255, 255, .05); }
+.btn.primary {
+  background: rgba(var(--accent-rgb), .22);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .38), var(--spec);
+  color: #fff;
+  font-weight: 600;
+}
+.btn.primary:hover { background: rgba(var(--accent-rgb), .30); }
+.btn.primary:disabled { opacity: .38; pointer-events: none; }
+
+.tiny { font-size: 10px; letter-spacing: .06em; color: var(--text-3); }

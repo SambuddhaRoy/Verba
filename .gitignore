@@ -6,4 +6,7 @@ src-tauri/gen/schemas/
 node_modules/
 dist/
 *.db
-src/_preview.html
+# Throwaway harnesses: a page with its Tauri calls stubbed, used to exercise a
+# window's render paths outside the app. Named with a leading underscore so the
+# pattern catches them all.
+src/_*.html

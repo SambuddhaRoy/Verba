@@ -28,6 +28,23 @@
         "shadow": false
       },
       {
+        "label": "onboard",
+        "title": "Welcome to Verba",
+        "url": "onboard.html",
+        "width": 720,
+        "height": 620,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "resizable": false,
+        "visible": false,
+        "shadow": true,
+        "windowEffects": {
+          "effects": ["acrylic", "blur"],
+          "state": "active"
+        }
+      },
+      {
         "label": "settings",
         "title": "Verba — Settings",
         "url": "settings.html",
