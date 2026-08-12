@@ -275,6 +275,11 @@ pub struct Config {
     /// Terms to fix the casing of, or `spoken => written` pairs for words the
     /// recogniser reliably mangles.
     pub vocabulary: Vec<String>,
+    /// Ids of the domain packs in use. Several can be on at once.
+    pub enabled_packs: Vec<String>,
+    /// Watch what the user corrects and bias the recogniser towards it.
+    /// Off until asked for: it means keeping a file of things they dictated.
+    pub learn_from_corrections: bool,
     /// Ollama endpoint and model for the rewrite pass.
     pub llm_url: String,
     pub llm_model: String,
@@ -308,6 +313,8 @@ impl Default for Config {
             modes: default_modes(),
             rules: default_rules(),
             vocabulary: Vec::new(),
+            enabled_packs: Vec::new(),
+            learn_from_corrections: false,
             llm_url: "http://127.0.0.1:11434".into(),
             // Deliberately empty rather than a guess. Four of the default modes
             // ask for a rewrite, so naming a model here would have every fresh
@@ -324,9 +331,91 @@ impl Default for Config {
     }
 }
 
+/// Pack contents are read from disk, and `clean()` runs on every dictation
+/// including the interim passes, so the merged list is built once and reused.
+///
+/// Keyed on the inputs that produced it, not merely cleared on save: a cache
+/// that only knows how to be invalidated returns the previous config's
+/// vocabulary the moment anything changes it by another route.
+struct VocabCache {
+    vocabulary: Vec<String>,
+    packs: Vec<String>,
+    merged: Vec<String>,
+    bias: Vec<String>,
+}
+static VOCAB_CACHE: std::sync::Mutex<Option<VocabCache>> = std::sync::Mutex::new(None);
+
+pub fn invalidate_vocabulary() {
+    *VOCAB_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 impl Config {
     pub fn mode(&self, id: &str) -> Option<&Mode> {
         self.modes.iter().find(|m| m.id == id)
+    }
+
+    /// The user's own vocabulary followed by every enabled pack's entries.
+    ///
+    /// Order is the priority order: `pipeline::clean` takes the first matching
+    /// entry, so something the user wrote themselves always beats a pack rule.
+    /// Being overruled by a shipped pack you cannot see would be maddening.
+    pub fn effective_vocabulary(&self) -> Vec<String> {
+        let mut vocab = self.cached().0;
+        if self.learn_from_corrections {
+            // After the user's own entries and the packs, so anything written
+            // by hand still wins over something inferred.
+            vocab.extend(crate::learn::rewrite_entries());
+        }
+        vocab
+    }
+
+    /// Everything worth telling the recogniser to listen for: pack terms, the
+    /// user's own vocabulary, and — if they opted in — what they keep
+    /// correcting. Capped, because whisper silently truncates a long prompt.
+    pub fn bias_terms(&self) -> Vec<String> {
+        let mut terms = self.cached().1;
+        if self.learn_from_corrections {
+            // Learned terms go first: they are evidence from this user's own
+            // corrections, which beats a guess from a shipped list.
+            let mut learned = crate::learn::bias_terms();
+            learned.extend(terms);
+            terms = learned;
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        terms.retain(|t| !t.is_empty() && seen.insert(t.to_lowercase()));
+        terms.truncate(crate::learn::MAX_BIAS_TERMS);
+        terms
+    }
+
+    fn cached(&self) -> (Vec<String>, Vec<String>) {
+        let mut guard = VOCAB_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(hit) = guard.as_ref() {
+            if hit.vocabulary == self.vocabulary && hit.packs == self.enabled_packs {
+                return (hit.merged.clone(), hit.bias.clone());
+            }
+        }
+        let mut vocab = self.vocabulary.clone();
+        vocab.extend(crate::packs::active_entries(&self.enabled_packs));
+
+        let mut bias: Vec<String> = self
+            .vocabulary
+            .iter()
+            .map(|e| match e.split_once("=>") {
+                Some((_, w)) => w.trim().to_string(),
+                None => e.trim().to_string(),
+            })
+            .filter(|w| w.chars().any(char::is_alphanumeric))
+            .collect();
+        bias.extend(crate::packs::active_bias(&self.enabled_packs));
+
+        *guard = Some(VocabCache {
+            vocabulary: self.vocabulary.clone(),
+            packs: self.enabled_packs.clone(),
+            merged: vocab.clone(),
+            bias: bias.clone(),
+        });
+        (vocab, bias)
     }
 
     /// Which mode applies to the app that had focus, first matching rule wins.
@@ -386,6 +475,9 @@ pub fn load() -> Config {
 pub fn save(cfg: &Config) -> Result<()> {
     std::fs::create_dir_all(dir())?;
     std::fs::write(path(), serde_json::to_string_pretty(cfg)?)?;
+    // The enabled pack list may have just changed, and the merged vocabulary
+    // is cached against it.
+    invalidate_vocabulary();
     Ok(())
 }
 

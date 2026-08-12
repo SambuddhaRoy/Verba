@@ -34,7 +34,7 @@ impl Engine {
 
     /// `quick` trades a little accuracy for latency, for interim passes that
     /// will be replaced by the final one anyway.
-    pub fn transcribe(&self, pcm16k: &[f32], quick: bool) -> Result<String> {
+    pub fn transcribe(&self, pcm16k: &[f32], quick: bool, bias: &[String]) -> Result<String> {
         let mut state = self.ctx.create_state()?;
 
         let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
@@ -42,6 +42,16 @@ impl Engine {
         p.set_language(Some("en"));
         p.set_translate(false);
         p.set_suppress_blank(true);
+
+        // Whisper conditions on the prompt as if it were text preceding the
+        // audio, so a comma-separated glossary is enough to make it prefer
+        // these spellings. Skipped on interim passes: `set_no_context` is on
+        // there and the prompt would fight it for the same token budget.
+        let prompt;
+        if !bias.is_empty() && !quick {
+            prompt = format!("Glossary: {}.", bias.join(", "));
+            p.set_initial_prompt(&prompt);
+        }
         if quick {
             // Each interim pass re-reads the whole tail, so carrying decoder
             // context between passes would compound earlier mistakes rather

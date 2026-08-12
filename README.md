@@ -59,6 +59,22 @@ routed across about fifty applications. Every rule, mode and prompt is editable.
 words, casing and a custom vocabulary list are applied deterministically — no model
 involved, so it cannot hallucinate.
 
+**Learns what you keep fixing.** Correct a dictation in **Settings → Vocabulary**
+and Verba diffs it against what the recogniser produced. A term you fix twice is
+suggested to the model as bias; one you fix three times is corrected outright. Off
+until you turn it on, and the history is a plain-text file you can read or delete.
+
+The automatic-rewrite path is deliberately guarded. A correction is only applied
+without the model's help when what the recogniser produced is *not* ordinary
+English — "cuber netties" is safe to rewrite, "there" is not, however many times
+you fixed it. A homophone fix is about one sentence, and applying it everywhere
+would silently corrupt words you did say.
+
+**Domain packs.** Vocabulary plus formatting rules for a field, several enabled at
+once. Ships with Code, Medical and Legal. The Code pack turns "print open paren
+hello close paren" into `print(hello)`; the Medical pack knows "bee pee" is `BP`.
+Add your own as a JSON file in `%APPDATA%\Verba\packs`.
+
 **Optionally rewrites with a local LLM.** If [Ollama](https://ollama.com) is installed,
 a small model can turn dictated speech into properly written prose for the target app.
 Verba starts the server itself when needed and will only offer models of 4B parameters
@@ -181,6 +197,8 @@ that could not be diagnosed by reading the code.
 | `--inject-test <text>` | Text insertion with no model and no microphone |
 | `--overlay-test [visual]` | Drive the overlay through its states |
 | `--onboard` | Replay the first-run flow |
+| `--fix "<heard>" "<meant>"` | Record a correction without dictating it |
+| `--learned` | Every learned term, and what each engine will do with it |
 | `--check-update` | What the background watcher sees, without waiting for it |
 | `--self-update` | Run the whole cycle now: check, download, verify, swap, relaunch |
 
@@ -193,6 +211,17 @@ Verba is early. It works and it is used daily, but the version number is honest.
 Known gaps: Parakeet runs in offline mode rather than truly streaming; there is no
 dictation history; per-mode override hotkeys are not implemented; Windows 10 is
 untested.
+
+**Recogniser bias is whisper-only.** Learned terms and pack vocabulary are fed to
+whisper through `initial_prompt`. sherpa-onnx has an equivalent — hotwords — but it
+encodes them against the model's own token table, and Parakeet ships a 1025-piece
+BPE vocabulary with no sentencepiece model to split new words with, so every hotword
+is rejected as unencodable. On Parakeet, learned terms still take effect as
+deterministic rewrites; the model itself is not steered. `--learned` says which
+applies to the engine you are on.
+
+Windows only for now. The platform layer is Win32 throughout, and a Linux or
+Android port is a separate piece of work rather than a flag.
 
 ---
 

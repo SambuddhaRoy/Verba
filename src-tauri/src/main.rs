@@ -28,6 +28,8 @@ mod pipeline;
 mod parakeet;
 mod startup;
 mod stt;
+mod learn;
+mod packs;
 mod transcribe;
 mod update;
 
@@ -188,6 +190,47 @@ fn get_state() -> SettingsState {
         version: env!("CARGO_PKG_VERSION"),
         update_staged: update::staged(),
     }
+}
+
+/// The text of the most recent dictation, as inserted. In memory only: this is
+/// the user's words, and keeping a copy on disk is exactly what the correction
+/// history opt-in exists to ask permission for.
+static LAST_DICTATION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[tauri::command]
+fn last_dictation() -> Option<String> {
+    LAST_DICTATION.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Save a corrected version of the last dictation and learn from the diff.
+#[tauri::command]
+fn record_correction(fixed: String) -> Result<Vec<learn::Learned>, String> {
+    if !config::load().learn_from_corrections {
+        return Err("learning from corrections is switched off".into());
+    }
+    let raw = last_dictation().ok_or("nothing has been dictated yet")?;
+    let pairs = learn::record(&raw, &fixed)?;
+    log!("correction recorded: {} substitution(s)", pairs.len());
+    // The corrected text becomes the new baseline, so a second pass over the
+    // same dictation does not re-learn the edits already saved.
+    *LAST_DICTATION.lock().unwrap_or_else(|e| e.into_inner()) = Some(fixed);
+    Ok(learn::learned())
+}
+
+#[tauri::command]
+fn learned_corrections() -> Vec<learn::Learned> {
+    learn::learned()
+}
+
+#[tauri::command]
+fn clear_corrections() -> Result<(), String> {
+    learn::clear()
+}
+
+/// Every pack, built-in and user-authored, for the packs panel.
+#[tauri::command]
+fn list_packs() -> Vec<packs::Pack> {
+    packs::all()
 }
 
 /// Ask GitHub whether there is a newer release. Returns null when current.
@@ -757,6 +800,12 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                         log!("  {formatted}");
                     }
 
+                    // Kept so "fix last transcription" has something to diff
+                    // against. Held in memory only — nothing is written to disk
+                    // unless the user actually corrects it and has opted in.
+                    *LAST_DICTATION.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(formatted.clone());
+
                     let mut s = State::new("transcribing", "INSERTED");
                     s.text = Some(formatted.clone());
                     s.mode = Some(mode_name);
@@ -1038,6 +1087,59 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // `verba --fix "<what it heard>" "<what you meant>"` — record a correction
+    // without the UI, and show what it changed. The only way to exercise the
+    // learning loop end to end without dictating the same sentence three times.
+    if arg1 == Some("--fix") {
+        let (Some(raw), Some(fixed)) = (args.get(2), args.get(3)) else {
+            log!("usage: verba --fix \"<heard>\" \"<meant>\"");
+            return Ok(());
+        };
+        // The same gate the UI honours. A diagnostic that quietly starts a
+        // history file the user has not asked for would defeat the opt-in.
+        if !config::load().learn_from_corrections {
+            log!("learning from corrections is off; enable it in Settings first");
+            return Ok(());
+        }
+        let pairs = learn::record(raw, fixed).map_err(|e| anyhow!(e))?;
+        log!("learned {} substitution(s):", pairs.len());
+        for (w, r) in &pairs {
+            log!("  {w:?} -> {r:?}");
+        }
+        return Ok(());
+    }
+
+    // `verba --learned` — the aggregate, and exactly what each engine will do
+    // with it. Answers "why has this not started working yet".
+    if arg1 == Some("--learned") {
+        let cfg = config::load();
+        log!("learning: {}", if cfg.learn_from_corrections { "on" } else { "OFF" });
+        log!("history:  {}", learn::path().display());
+        let all = learn::learned();
+        if all.is_empty() {
+            log!("nothing learned yet");
+        }
+        for l in &all {
+            let how = match (l.promoted, l.rewrite) {
+                (_, true) => "rewrite + bias",
+                (true, false) => "bias only",
+                _ => "not yet",
+            };
+            log!("  {:>2}x  {:?} -> {:?}   [{how}]", l.count, l.wrong, l.right);
+        }
+        log!("");
+        log!("packs enabled: {:?}", cfg.enabled_packs);
+        let bias = cfg.bias_terms();
+        log!("bias terms ({}): {}", bias.len(), bias.join(", "));
+        log!("");
+        log!(
+            "engine {} {} use bias",
+            cfg.engine,
+            if cfg.engine == "parakeet" { "cannot" } else { "can" }
+        );
+        return Ok(());
+    }
+
     // `verba --check-update` — what the background watcher sees, without
     // waiting 45 seconds for it or restarting anything.
     if arg1 == Some("--check-update") {
@@ -1188,7 +1290,12 @@ fn main() -> Result<()> {
             reveal_models_dir,
             check_update,
             download_update,
-            apply_update
+            apply_update,
+            last_dictation,
+            record_correction,
+            learned_corrections,
+            clear_corrections,
+            list_packs
         ])
         .setup(move |app| {
             let overlay_win = app

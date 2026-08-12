@@ -33,7 +33,27 @@ const SPOKEN: &[(&[&str], &str)] = &[
 ];
 
 /// Punctuation that attaches to the word before it with no space.
-const HUGS_LEFT: &[&str] = &[".", ",", "?", "!", ":", ";", ")", "\""];
+/// Punctuation that attaches to the word before it.
+///
+/// Opening brackets are here as well as in HUGS_RIGHT, so they close up on
+/// both sides: `print(hello)` rather than `print ( hello)`. English prose
+/// would want a space before an opening bracket, but these characters only
+/// ever reach this function from a pack transform — dictating "open paren"
+/// with no pack enabled leaves the words alone — and every pack that emits one
+/// is code-oriented. The trade-off is a transcript where the recogniser itself
+/// emitted a bracket mid-sentence, which is rare enough to accept.
+const HUGS_LEFT: &[&str] =
+    &[".", ",", "?", "!", ":", ";", ")", "]", "\"", "(", "["];
+
+/// Punctuation that attaches to what *follows* it. Without this the Code pack
+/// turns "print open paren hello close paren" into "Print ( hello)" — the
+/// closing bracket hugs correctly and the opening one floats, which looks more
+/// broken than leaving the words alone would have.
+/// Braces and angles are deliberately absent from both lists: `if x == y {
+/// return true }` is what a brace wants, whereas closing up like a paren gives
+/// `y{return true}`. Angles are usually comparison operators when dictated, and
+/// those want ordinary spacing too.
+const HUGS_RIGHT: &[&str] = &["(", "[", "@", "#", "$", "~", "^", "_", "/", "\\", "§", "¶"];
 
 fn strip_edge_punctuation(word: &str) -> &str {
     word.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'')
@@ -61,7 +81,8 @@ fn vocabulary_pairs(vocab: &[String]) -> Vec<(Vec<String>, String)> {
 /// Stage one. Pure: same input, same output, no I/O.
 pub fn clean(raw: &str, cfg: &Config, mode: &Mode) -> String {
     let words: Vec<&str> = raw.split_whitespace().collect();
-    let vocab = vocabulary_pairs(&cfg.vocabulary);
+    // The user's own entries first, then every enabled pack's.
+    let vocab = vocabulary_pairs(&cfg.effective_vocabulary());
     let fillers: Vec<String> = cfg.fillers.iter().map(|f| f.to_lowercase()).collect();
 
     let mut out: Vec<String> = Vec::with_capacity(words.len());
@@ -162,18 +183,26 @@ fn survives(original: &str, rewritten: &str) -> Result<(), String> {
 fn join(tokens: &[String]) -> String {
     let mut s = String::new();
     let mut capitalise = true;
+    /// Set by an opening bracket so the next token joins it directly.
+    let mut glue_next = false;
 
     for tok in tokens {
         if tok == "\n" || tok == "\n\n" {
             s.push_str(tok);
             capitalise = true;
+            glue_next = false;
             continue;
         }
         let hugs = HUGS_LEFT.contains(&tok.as_str());
-        if !s.is_empty() && !hugs && !s.ends_with('\n') {
+        if !s.is_empty() && !hugs && !glue_next && !s.ends_with('\n') {
             s.push(' ');
         }
-        if capitalise && !hugs {
+        glue_next = HUGS_RIGHT.contains(&tok.as_str());
+        // A symbol cannot carry a capital, so it must not use up the pending
+        // one either: "(hello" at the start of a sentence should still yield
+        // "(Hello", not leave the word lowercase behind the bracket.
+        let capitalisable = tok.chars().any(char::is_alphabetic);
+        if capitalise && !hugs && capitalisable {
             let mut c = tok.chars();
             if let Some(first) = c.next() {
                 s.extend(first.to_uppercase());
@@ -281,6 +310,20 @@ mod tests {
         assert_eq!(clean("we ship onnx today", &cfg, &mode(false)), "We ship ONNX today");
         assert_eq!(clean("we ship on ex today", &cfg, &mode(false)), "We ship ONNX today");
         assert_eq!(clean("run it on kubernetes", &cfg, &mode(false)), "Run it on Kubernetes");
+    }
+
+    /// Pack transforms produce bare symbols, and the spacing rules have to
+    /// handle both directions or the output looks worse than the raw words.
+    #[test]
+    fn brackets_attach_to_what_they_enclose() {
+        let cfg = Config {
+            enabled_packs: vec!["code".into()],
+            ..Default::default()
+        };
+        crate::config::invalidate_vocabulary();
+        let out = clean("print open paren hello close paren", &cfg, &mode(false));
+        crate::config::invalidate_vocabulary();
+        assert_eq!(out, "Print(hello)");
     }
 
     #[test]
