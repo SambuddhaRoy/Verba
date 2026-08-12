@@ -499,6 +499,57 @@ code {
 }
 .rv { font: 400 10.5px var(--mono); color: var(--text-2); text-align: right; }
 /* The hardware caveat sits under its bar, spanning the value column. */
+/* ------------------------------------------------- packs and learning */
+
+h2.sec {
+  font: 600 12px var(--sans);
+  letter-spacing: .02em;
+  color: var(--text-2);
+  margin: 22px 0 6px;
+}
+h2.sec:first-of-type { margin-top: 4px; }
+.hint { font: 400 11.5px/1.5 var(--sans); color: var(--text-3); margin: 0 0 10px; max-width: 60ch; }
+.mine {
+  font: 400 9px var(--mono);
+  letter-spacing: .06em;
+  color: var(--accent-light);
+  vertical-align: 1px;
+}
+
+.card.fix, .card.learned { display: block; padding: 13px 15px; }
+.card.fix .row, .card.learned .row { padding: 0; background: none; box-shadow: none; }
+.card.fix textarea {
+  width: 100%;
+  margin-top: 11px;
+  min-height: 76px;
+  resize: vertical;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, .28);
+  box-shadow: var(--hair);
+  color: var(--text);
+  font: 400 13px/1.5 var(--sans);
+  user-select: text;
+}
+.card.fix textarea:focus-visible { outline: 2px solid var(--accent-light); outline-offset: 1px; }
+
+#learn-list { margin-top: 10px; display: grid; gap: 4px; }
+.lrn {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12px;
+}
+.lrn .was { color: var(--text-3); text-align: right; text-decoration: line-through; }
+.lrn .arr { color: var(--text-3); }
+.lrn .now { font-weight: 600; }
+.lrn .n { font: 400 10.5px var(--mono); color: var(--text-3); }
+.lrn .st { font: 400 10px var(--sans); color: var(--text-3); white-space: nowrap; }
+.lrn .st.ok { color: var(--accent-light); }
+
 /* Update card: same collapsed-until-needed progress track as the model rows. */
 .card.up { display: block; padding: 13px 15px; }
 .card.up .row { padding: 0; background: none; box-shadow: none; }

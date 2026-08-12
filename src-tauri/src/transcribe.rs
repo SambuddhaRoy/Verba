@@ -20,9 +20,16 @@ enum Backend {
 }
 
 impl Backend {
-    fn transcribe(&mut self, pcm: &[f32], quick: bool) -> Result<String> {
+    /// `bias` is the glossary the recogniser should lean towards.
+    ///
+    /// Only whisper can use it. sherpa's hotwords have to be encoded against
+    /// the model's own token vocabulary, and Parakeet ships a 1025-piece BPE
+    /// table with no sentencepiece model to split new words with — every
+    /// hotword is rejected as unencodable. Learned terms still reach that
+    /// engine, as deterministic rewrites from `effective_vocabulary`.
+    fn transcribe(&mut self, pcm: &[f32], quick: bool, bias: &[String]) -> Result<String> {
         match self {
-            Backend::WhisperCpp(e) => e.transcribe(pcm, quick),
+            Backend::WhisperCpp(e) => e.transcribe(pcm, quick, bias),
             Backend::FasterWhisper(s) => s.transcribe(pcm, quick),
             Backend::Parakeet(s) => s.transcribe(pcm, quick),
         }
@@ -163,7 +170,7 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>) {
         };
 
         let t0 = Instant::now();
-        match eng.transcribe(slice, !final_pass) {
+        match eng.transcribe(slice, !final_pass, &cfg.bias_terms()) {
             Ok(text) => {
                 let _ = done.send(if final_pass {
                     Done::Final { text, utterance, took: t0.elapsed() }

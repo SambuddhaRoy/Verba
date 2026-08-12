@@ -22,6 +22,7 @@
     <button class="nav" data-panel="dictation"><i></i>Dictation</button>
     <button class="nav" data-panel="models"><i></i>Models</button>
     <button class="nav" data-panel="modes"><i></i>Modes</button>
+    <button class="nav" data-panel="learning"><i></i>Vocabulary</button>
     <button class="nav" data-panel="appearance"><i></i>Appearance</button>
     <button class="nav" data-panel="about"><i></i>About</button>
     <div class="rig">
@@ -157,6 +158,50 @@
       <h2 class="sect">Vocabulary</h2>
       <p class="hint">One term per line to fix its casing, or <code>spoken =&gt; written</code> to rewrite a phrase the recogniser mangles. Applied before any model sees the text.</p>
       <textarea id="vocabulary" spellcheck="false" placeholder="ONNX&#10;Kubernetes&#10;on ex =&gt; ONNX"></textarea>
+    </div>
+
+    <!-- Vocabulary: packs and learning -->
+    <div class="panel" id="p-learning">
+      <h1>Vocabulary</h1>
+      <p class="sub">Packs teach Verba a domain. Learning teaches it you.</p>
+
+      <h2 class="sec">Domain packs</h2>
+      <p class="hint">Vocabulary and formatting rules for a field. Enable as many as you
+        need — the Code and Medical packs work together fine.</p>
+      <div id="pack-list"></div>
+
+      <h2 class="sec">Learn from corrections</h2>
+      <div class="card row">
+        <div class="grow">
+          <b>Remember what you fix</b>
+          <small>When you correct a dictation, Verba keeps the difference and stops
+            making that mistake. Your words are stored on this machine only.</small>
+        </div>
+        <button class="tgl" id="learn_from_corrections"></button>
+      </div>
+
+      <div id="learn-body" hidden>
+        <div class="card fix">
+          <div class="row">
+            <div class="grow">
+              <b>Fix the last dictation</b>
+              <small id="fix-note">Edit what Verba typed. It learns from the difference.</small>
+            </div>
+            <button class="btn" id="fix-save">Save correction</button>
+          </div>
+          <textarea id="fix-text" spellcheck="false"
+                    placeholder="Nothing dictated yet this session."></textarea>
+        </div>
+
+        <div class="card learned">
+          <div class="row">
+            <div class="grow"><b>What Verba has learned</b>
+              <small id="learn-count">Nothing yet.</small></div>
+            <button class="btn" id="learn-clear">Clear history</button>
+          </div>
+          <div id="learn-list"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Appearance -->

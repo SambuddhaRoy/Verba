@@ -317,6 +317,18 @@ async function boot() {
   bindToggle('launch_at_startup', 'Startup preference saved');
   bindToggle('preload_model', 'Preload preference saved');
   bindToggle('auto_update', 'Update preference saved');
+  bindToggle('learn_from_corrections', 'Learning preference saved');
+
+  $('fix-save').onclick = () => {
+    invoke('record_correction', { fixed: $('fix-text').value })
+      .then(() => { toast('Correction saved'); buildLearning(); })
+      .catch(e => toast(`${e}`));
+  };
+  $('learn-clear').onclick = () => {
+    invoke('clear_corrections')
+      .then(() => { toast('Correction history cleared'); buildLearning(); })
+      .catch(e => toast(`${e}`));
+  };
 
   $('threads').max = hw.threads;
   $('threads').oninput = e => {
@@ -453,8 +465,89 @@ async function boot() {
   $('cfgpath').textContent = s.config_path;
   $('about-sub').textContent = `Verba ${s.version} — local-first speech to text.`;
   buildUpdates(s);
+  buildPacks();
+  buildLearning();
 
   render();
+}
+
+/* --- packs and learning --------------------------------------------------- */
+
+/** Enabled packs, in the order they were switched on. */
+function buildPacks() {
+  invoke('list_packs').then(packs => {
+    const host = $('pack-list');
+    host.innerHTML = '';
+    packs.forEach(p => {
+      const on = cfg.enabled_packs.includes(p.id);
+      const row = document.createElement('div');
+      row.className = 'card row';
+      const counts = [
+        p.terms.length && `${p.terms.length} terms`,
+        p.hints.length && `${p.hints.length} hints`,
+        p.transforms.length && `${p.transforms.length} rules`,
+      ].filter(Boolean).join(' · ');
+      row.innerHTML =
+        `<div class="grow"><b>${p.name}${p.user ? ' <span class="mine">YOURS</span>' : ''}</b>
+           <small>${p.description}${counts ? ` — ${counts}` : ''}</small></div>`;
+      const tgl = document.createElement('button');
+      tgl.className = 'tgl' + (on ? ' on' : '');
+      tgl.onclick = () => {
+        // Order is priority order downstream, so a pack switched on later
+        // sits behind one switched on earlier. Removing and re-adding is how
+        // a user reorders them.
+        cfg.enabled_packs = on
+          ? cfg.enabled_packs.filter(id => id !== p.id)
+          : [...cfg.enabled_packs, p.id];
+        save(on ? `${p.name} off` : `${p.name} on`);
+        buildPacks();
+      };
+      row.appendChild(tgl);
+      host.appendChild(row);
+    });
+  }).catch(e => toast(`${e}`));
+}
+
+function buildLearning() {
+  const on = !!cfg.learn_from_corrections;
+  $('learn_from_corrections').classList.toggle('on', on);
+  $('learn-body').hidden = !on;
+  if (!on) return;
+
+  invoke('last_dictation').then(text => {
+    const box = $('fix-text');
+    // Only replace the box while the user is not part-way through an edit,
+    // or a reload would discard what they were typing.
+    if (document.activeElement !== box) box.value = text || '';
+    $('fix-note').textContent = text
+      ? 'Edit what Verba typed. It learns from the difference.'
+      : 'Dictate something first, then come back here to correct it.';
+    $('fix-save').disabled = !text;
+  }).catch(() => {});
+
+  invoke('learned_corrections').then(list => {
+    const host = $('learn-list');
+    host.innerHTML = '';
+    $('learn-count').textContent = list.length
+      ? `${list.length} correction${list.length === 1 ? '' : 's'} remembered.`
+      : 'Nothing yet — correct a dictation above.';
+
+    list.slice(0, 40).forEach(l => {
+      const row = document.createElement('div');
+      row.className = 'lrn';
+      // Saying which of the two things is happening matters: on an engine
+      // without biasing, "bias only" means nothing has changed yet.
+      const state = l.rewrite ? 'corrected automatically'
+                  : l.promoted ? 'suggested to the recogniser'
+                  : `needs ${2 - l.count} more`;
+      row.innerHTML =
+        `<span class="was">${l.wrong}</span><span class="arr">→</span>
+         <span class="now">${l.right}</span>
+         <span class="n">${l.count}×</span>
+         <span class="st${l.rewrite ? ' ok' : ''}">${state}</span>`;
+      host.appendChild(row);
+    });
+  }).catch(() => {});
 }
 
 /* --- updates -------------------------------------------------------------- */
