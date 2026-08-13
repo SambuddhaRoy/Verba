@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 24 880 232" width="880" height="232"
+     font-family="Segoe UI Variable, Segoe UI, system-ui, sans-serif" role="img"
+     aria-label="Hold Ctrl+Shift+Space, speak, and Verba inserts formatted text into the app you are using.">
+  <title>Verba: hold a key, speak, let go</title>
+
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#181820"/>
+      <stop offset="1" stop-color="#0d0d13"/>
+    </linearGradient>
+    <linearGradient id="r1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3f8fd8"/><stop offset="1" stop-color="#7ad6c8"/>
+    </linearGradient>
+    <linearGradient id="r2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8a7bff"/><stop offset="1" stop-color="#4fb0e8"/>
+    </linearGradient>
+    <linearGradient id="r3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#66d3a0"/><stop offset="1" stop-color="#3f8fd8"/>
+    </linearGradient>
+    <!-- The panel's ambient shadow, same idea as the real overlay's. -->
+    <filter id="soft" x="-30%" y="-40%" width="160%" height="200%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+  </defs>
+
+  <!-- the chord -->
+  <g transform="translate(0,116)">
+    <rect x="12"  y="0" width="52" height="34" rx="7" fill="#20202a" stroke="#3a3a48"/>
+    <rect x="70"  y="0" width="60" height="34" rx="7" fill="#20202a" stroke="#3a3a48"/>
+    <rect x="136" y="0" width="86" height="34" rx="7" fill="#20202a" stroke="#3a3a48"/>
+    <text x="38"  y="22" font-size="12.5" fill="#c9c9d4" text-anchor="middle">Ctrl</text>
+    <text x="100" y="22" font-size="12.5" fill="#c9c9d4" text-anchor="middle">Shift</text>
+    <text x="179" y="22" font-size="12.5" fill="#c9c9d4" text-anchor="middle">Space</text>
+    <text x="12"  y="60" font-size="12" fill="#7b7b8c">hold, and speak</text>
+  </g>
+
+  <path d="M238 133 h34 m-8 -6 l8 6 -8 6" fill="none" stroke="#55556a" stroke-width="1.6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- the overlay -->
+  <g transform="translate(292,42)">
+    <rect x="6" y="16" width="452" height="196" rx="30" fill="#000" opacity=".55" filter="url(#soft)"/>
+    <rect x="0" y="0" width="452" height="200" rx="30" fill="url(#panel)"/>
+    <rect x="0" y="0" width="452" height="200" rx="30" fill="none" stroke="#ffffff" stroke-opacity=".08"/>
+
+    <!-- Interference ribbons: three envelopes crossing, whitening where they
+         overlap, which is what the real visualiser does with screen blending. -->
+    <g style="mix-blend-mode:screen" opacity=".95">
+      <path d="M40 92 C 110 44, 180 128, 250 78 S 380 46, 412 84 L412 96 C 380 62, 320 96, 250 92 S 110 66, 40 104 Z"
+            fill="url(#r1)" opacity=".78"/>
+      <path d="M40 100 C 120 138, 190 58, 258 104 S 372 132, 412 96 L412 108 C 372 146, 300 116, 258 118 S 120 152, 40 112 Z"
+            fill="url(#r2)" opacity=".72"/>
+      <path d="M40 96 C 130 76, 176 118, 244 96 S 356 78, 412 92 L412 100 C 356 88, 300 106, 244 104 S 130 92, 40 104 Z"
+            fill="url(#r3)" opacity=".66"/>
+      <path d="M40 98 C 140 90, 200 104, 250 98 S 360 90, 412 96 L412 99 C 360 94, 300 102, 250 100 S 140 95, 40 101 Z"
+            fill="#ffffff" opacity=".92"/>
+    </g>
+
+    <text x="28" y="152" font-size="10" letter-spacing="1.4" fill="#7ad6c8"
+          font-family="Consolas, ui-monospace, monospace">EMAIL</text>
+    <text x="424" y="152" font-size="10" letter-spacing="1.4" fill="#5a5a6b" text-anchor="end"
+          font-family="Consolas, ui-monospace, monospace">PARAKEET · GPU</text>
+    <text x="28" y="180" font-size="15" fill="#e8e8f0">Thanks for sending the deck — it looks good.</text>
+  </g>
+
+  <path d="M772 133 h34 m-8 -6 l8 6 -8 6" fill="none" stroke="#55556a" stroke-width="1.6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- lands where you were -->
+  <g transform="translate(818,84)">
+    <rect x="0" y="0" width="50" height="96" rx="9" fill="#20202a" stroke="#3a3a48"/>
+    <rect x="10" y="16" width="30" height="3" rx="1.5" fill="#4a4a5a"/>
+    <rect x="10" y="26" width="22" height="3" rx="1.5" fill="#4a4a5a"/>
+    <rect x="10" y="44" width="30" height="3" rx="1.5" fill="#7ad6c8"/>
+    <rect x="10" y="54" width="26" height="3" rx="1.5" fill="#7ad6c8"/>
+    <rect x="10" y="64" width="18" height="3" rx="1.5" fill="#7ad6c8"/>
+    <rect x="30" y="63" width="1.6" height="7" fill="#e8e8f0"/>
+    <text x="25" y="118" font-size="11.5" fill="#7b7b8c" text-anchor="middle">at your caret</text>
+  </g>
+</svg>

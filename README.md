@@ -1,153 +1,131 @@
+<div align="center">
+
 # Verba
 
-Local-first speech-to-text for Windows 11. Hold `Ctrl+Shift+Space`, speak, let go —
-your words land at the caret in whatever app you were using. Nothing is uploaded, there
-is no account, and there is no per-minute cost.
+**Dictate anywhere on Windows. Hold a key, speak, let go — your words appear at the caret.**
 
-It is a free alternative to the paid dictation tools, built around the idea that the
-output should already be shaped for where it is going: an email in Outlook, bullets in
-Obsidian, a comment in your editor.
+Everything runs on your machine. No account, no cloud, no per-minute cost.
 
----
+[![Download](https://img.shields.io/github/v/release/SambuddhaRoy/Verba?label=download&style=for-the-badge)](https://github.com/SambuddhaRoy/Verba/releases/latest) [![Licence](https://img.shields.io/badge/licence-GPL--3.0-blue?style=for-the-badge)](LICENSE) [![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](#requirements)
 
-## Install
+<img src="docs/hero.svg" alt="Hold Ctrl+Shift+Space, speak, and the transcribed text is inserted where your caret is." width="880">
 
-1. Download `Verba.exe` from the [latest release](../../releases/latest).
-2. Run it. It lives in the system tray; there is no installer and nothing is written
-   outside `%LOCALAPPDATA%\Verba`.
-3. On first launch a short setup appears — pick a microphone, download one speech
-   model, and test it.
-
-**Windows will warn you the first time.** The executable is not code-signed (a
-certificate costs several hundred dollars a year), so SmartScreen shows
-*"Windows protected your PC"*. Choose **More info → Run anyway**. If you would rather
-not trust a binary from a stranger, build it yourself — see below.
-
-### Updates
-
-Verba checks GitHub for a new release shortly after launch and every six hours
-after that. When one appears it downloads it in the background, verifies it against
-the SHA-256 GitHub publishes for the asset, and swaps it in — but only once you have
-gone two minutes without dictating, so an update can never interrupt you mid-sentence.
-Turn it off under **Settings → About → Update automatically**, or check by hand from
-the same panel.
-
-A caveat worth stating plainly: the checksum and the download come from the same
-place, so this protects against a corrupted or truncated transfer, not against a
-compromised GitHub account. Real protection would need a signature made with a key
-that never touches GitHub, which this project does not have yet.
-
-### Uninstall
-
-Quit from the tray, delete `Verba.exe`, and delete `%LOCALAPPDATA%\Verba` if you want
-the models and config gone too.
+</div>
 
 ---
 
-## What it does
+## Get started
 
-**Dictate anywhere.** A low-level keyboard hook watches for the hotkey and swallows it
-while held, so the focused app never sees it. Audio is captured continuously into a
-120-second ring buffer, which means pressing the hotkey can reach ~200 ms *backwards*
-and catch the word you started saying as you pressed.
+**1.** Download **[Verba.exe](https://github.com/SambuddhaRoy/Verba/releases/latest)** &nbsp;•&nbsp; **2.** Run it &nbsp;•&nbsp; **3.** Follow the one-minute setup
 
-**Formats for the app you are in.** Verba reads the foreground window's executable and
-title and picks a mode. Out of the box: `raw`, `code`, `email`, `chat` and `notes`,
-routed across about fifty applications. Every rule, mode and prompt is editable.
+There is no installer. Verba lives in your system tray and writes only to `%LOCALAPPDATA%\Verba`.
+First launch walks you through picking a microphone, downloading one speech model, and testing it.
 
-**Cleans up speech.** Spoken punctuation ("new paragraph", "open bracket"), filler
-words, casing and a custom vocabulary list are applied deterministically — no model
-involved, so it cannot hallucinate.
+> [!IMPORTANT]
+> **Windows will warn you the first time.** The download isn't code-signed — a certificate
+> costs several hundred dollars a year — so SmartScreen shows *"Windows protected your PC"*.
+> Click **More info → Run anyway**. Every release publishes a SHA-256 you can check, and if
+> you'd rather not trust a stranger's binary, [build it yourself](#building-from-source).
 
-**Learns what you keep fixing.** Correct a dictation in **Settings → Vocabulary**
-and Verba diffs it against what the recogniser produced. A term you fix twice is
-suggested to the model as bias; one you fix three times is corrected outright. Off
-until you turn it on, and the history is a plain-text file you can read or delete.
-
-The automatic-rewrite path is deliberately guarded. A correction is only applied
-without the model's help when what the recogniser produced is *not* ordinary
-English — "cuber netties" is safe to rewrite, "there" is not, however many times
-you fixed it. A homophone fix is about one sentence, and applying it everywhere
-would silently corrupt words you did say.
-
-**Domain packs.** Vocabulary plus formatting rules for a field, several enabled at
-once. Ships with Code, Medical and Legal. The Code pack turns "print open paren
-hello close paren" into `print(hello)`; the Medical pack knows "bee pee" is `BP`.
-Add your own as a JSON file in `%APPDATA%\Verba\packs`.
-
-**Optionally rewrites with a local LLM.** If [Ollama](https://ollama.com) is installed,
-a small model can turn dictated speech into properly written prose for the target app.
-Verba starts the server itself when needed and will only offer models of 4B parameters
-or smaller, since this runs between you finishing a sentence and the text appearing.
-A fidelity check rejects any rewrite that drops more than 60% of the words or loses a
-number that was in the original, falling back to the cleaned transcript.
-
-**Follows Windows.** The accent colour and light/dark theme are read from the same
-settings Windows uses for its own chrome, and re-read while running — so changing
-your accent, or a wallpaper that Windows derives an accent from, retints the app
-within a second or two rather than at the next restart. Light mode is a full
-variant, not an inverted filter. The overlay stays a dark lens in both, because it
-floats over whatever you are working in.
-
-**Three overlay treatments.** An interference-pattern ribbon visualiser, a glow that
-deforms with the spectrum, and an ultra-minimal recorder. All three are audio-reactive
-and tinted with your Windows accent colour.
+Then hold **`Ctrl` + `Shift` + `Space`**, say something, and let go.
 
 ---
 
-## Requirements
+## What makes it different
 
-|                | |
-|----------------|--|
-| **OS**         | Windows 11 (Windows 10 likely works but is untested) |
-| **RAM**        | 4 GB free for the small models, 8 GB+ for the large ones |
-| **GPU**        | Optional. A Vulkan-capable GPU is used automatically if present |
-| **Ollama**     | Optional, only for the LLM rewrite pass |
+|  | |
+|---|---|
+| 🔒 **Genuinely local** | Your voice never leaves the machine. Nothing to sign up for, nothing metered. |
+| 🎯 **Knows where you're typing** | Reads the focused window and formats to match — an email in Outlook, bullets in Obsidian, a comment in your editor. |
+| 🧠 **Learns your words** | Correct a transcript once or twice and Verba stops getting that word wrong. No vocabulary list to maintain. |
+| 📚 **Domain packs** | Code, Medical and Legal vocabularies you can switch on together. "open paren" becomes `(`, "bee pee" becomes `BP`. |
+| ✍️ **Optional AI polish** | With [Ollama](https://ollama.com) installed, a small local model turns spoken rambling into written prose. |
+| 🎨 **Looks like Windows** | Follows your accent colour and light/dark theme, live — including when your wallpaper changes it. |
 
-Verba detects your hardware on first run and recommends a model to match.
+---
+
+## How it decides the formatting
+
+Verba looks at which application had focus when you started speaking and picks a mode.
+Around fifty apps are mapped out of the box, and every rule is editable.
+
+| Mode | Where it applies | What you get |
+|---|---|---|
+| **Raw** | Terminals | Exactly what you said, cleaned up |
+| **Code** | VS Code, JetBrains, Sublime, Neovim | Symbols and identifiers, no prose padding |
+| **Email** | Outlook, Thunderbird, Word | Connected prose, proper greeting and sign-off |
+| **Chat** | Slack, Teams, Discord | Short and informal |
+| **Notes** | Obsidian, Notion, OneNote | Bullets, nothing dropped |
+
+Spoken punctuation ("new paragraph", "question mark"), filler words and capitalisation are
+handled by plain rules — no model involved, so that step can never invent a word.
 
 ---
 
 ## Speech models
 
-Models are downloaded in-app and stored in `%LOCALAPPDATA%\Verba\models`.
+Pick one during setup; swap any time in **Settings → Models**. Downloads go to
+`%LOCALAPPDATA%\Verba\models`.
 
-| Model | Size | Notes |
+| Model | Size | Best for |
 |---|---:|---|
-| Whisper Tiny (English) | 31 MB | Fastest, roughest. Fine for short commands |
-| Whisper Base (English) | 57 MB | |
-| Whisper Small (English) | 181 MB | The sensible default on modest hardware |
-| Whisper Large v3 Turbo | 547 MB | Near-large accuracy, multilingual |
-| Parakeet TDT 0.6B v2 | 460 MB | Tops several English accuracy leaderboards |
+| Whisper Tiny | 31 MB | Old hardware, short commands |
+| Whisper Small | 181 MB | The sensible default on a laptop |
+| Whisper Large v3 Turbo | 547 MB | Near-best accuracy, multilingual |
+| Parakeet TDT 0.6B | 460 MB | Fastest of the accurate ones, English |
 
-Every model carries an **accuracy** and a **speed** bar so the trade-off between them
-is visible rather than something you have to already know. The two are deliberately
-kept separate — a single blended score would hide exactly the decision you are making.
-Speed is rated for *your* machine: the same model is quick with GPU offload and slow
-without it, so a model that would have to spill to CPU says so under its bar.
+Every model shows **separate accuracy and speed bars**, and speed is rated for *your* machine —
+a large model is quick on a GPU and slow without one, and the bar says which you're looking at.
+Verba recommends one based on your hardware and explains why.
 
-Verba picks a recommendation from those same numbers, weighted slightly towards
-accuracy, and skips anything that will not fit in memory. The reason names your actual
-hardware, so it reads as a decision rather than a default.
+<details>
+<summary><b>Engines and Python</b></summary>
 
-Three engines are supported. **whisper.cpp** is compiled into the binary and needs
-nothing extra. **Parakeet** (via sherpa-onnx) and **faster-whisper** run as Python
-sidecars, and Verba installs their dependencies on demand when you pick one.
+<br>
 
-Those two need Python 3.9 or newer. Verba checks for it before you commit to an
-engine, and offers to install it via winget. Note that Windows puts placeholder
-`python.exe` and `python3.exe` files on your PATH which only open the Microsoft
-Store — so typing `python` in a terminal appears to do something even when nothing
-is installed. Verba ignores those and looks for a real interpreter; `--python`
-reports what it found.
+**whisper.cpp** is built into the binary with Vulkan GPU offload and needs nothing extra.
+**Parakeet** (sherpa-onnx) and **faster-whisper** run as Python sidecars; Verba installs their
+dependencies when you pick one.
 
-For a rough sense of scale, on one laptop (RTX-class GPU, Vulkan): whisper.cpp
-`small.en` transcribed a short utterance in ~300 ms, and Parakeet TDT 110M on CPU did
-the same in ~90 ms. Treat those as one data point, not a benchmark.
+Those two need **Python 3.9+**. Verba checks before you commit to an engine and offers to
+install it via winget.
+
+Note that Windows puts placeholder `python.exe` and `python3.exe` files on your PATH that only
+open the Microsoft Store — so typing `python` in a terminal appears to work even with nothing
+installed. Verba ignores those and finds a real interpreter. `--python` reports what it found.
+
+</details>
 
 ---
 
-## Building from source
+## Requirements
+
+| | |
+|---|---|
+| **OS** | Windows 11 (Windows 10 probably works, untested) |
+| **RAM** | 4 GB free for small models, 8 GB+ for the large ones |
+| **GPU** | Optional — a Vulkan-capable GPU is used automatically |
+| **Ollama** | Optional, only for the AI polish pass |
+
+---
+
+## Updates
+
+Verba checks for new versions shortly after launch and every six hours, downloads them in the
+background, and verifies each against the SHA-256 GitHub publishes. It only restarts once you've
+gone two minutes without dictating, so an update never interrupts you. Turn it off in
+**Settings → About**.
+
+> The checksum and the download come from the same place, so this protects against a corrupted
+> transfer — not against a compromised GitHub account. Real protection needs a signature made
+> with a key that never touches GitHub, which this project doesn't have yet.
+
+---
+
+<details>
+<summary><b>Building from source</b></summary>
+
+<br>
 
 ```bash
 git clone https://github.com/SambuddhaRoy/Verba
@@ -161,7 +139,7 @@ Output lands in `dist/Verba.exe`.
 
 - Rust, MSVC toolchain
 - CMake and VS Build Tools with the C++ workload — whisper.cpp is compiled from source
-- The Vulkan SDK, for GPU offload. Without it, build with `--no-default-features`
+- The Vulkan SDK for GPU offload; without it, build with `--no-default-features`
 - `libclang`, because `whisper-rs-sys` generates its FFI bindings with bindgen
 
 The libclang requirement is the awkward one. Rather than install the whole ~2.5 GB LLVM
@@ -172,82 +150,80 @@ pip install libclang
 ```
 
 then copy `<site-packages>/clang/native/libclang.dll` into `src-tauri/.tools/`.
-`src-tauri/.cargo/config.toml` points `LIBCLANG_PATH` at that folder with a
-repo-relative path, so the build stays portable.
+`src-tauri/.cargo/config.toml` points `LIBCLANG_PATH` there with a repo-relative path.
 
-The crate's bundled `bindings.rs` is not a shortcut around this — it was generated on
-Linux and carries glibc struct layouts that fail a const-eval size assertion under
-MSVC.
+The crate's bundled `bindings.rs` is not a shortcut around this — it was generated on Linux and
+carries glibc struct layouts that fail a const-eval size assertion under MSVC.
 
+> [!WARNING]
 > Cargo discovers `.cargo/config.toml` from the **working directory**, not from
-> `--manifest-path`. Run cargo from inside `src-tauri/`, or `LIBCLANG_PATH` will not be
-> set and the build will fail in `whisper-rs-sys`.
+> `--manifest-path`. Run cargo from inside `src-tauri/`, or `LIBCLANG_PATH` won't be set and the
+> build fails in `whisper-rs-sys`.
 
-### Tests
+**Tests**
 
 ```bash
 cd src-tauri && cargo test
 ```
 
-Covers the ring buffer's absolute indexing, resampling, keyboard event construction,
-the formatting rules, the Ollama catalogue and hardware tiers, and the guard that stops
-a dictation typing into Verba's own window. Injection is tested through `events_for`
-rather than `insert`, which would type into whatever window had focus while the suite
-ran.
+Covers the ring buffer's absolute indexing, resampling, keyboard event construction, formatting
+rules, the correction diff, pack integrity, hardware scoring, SHA-256 against the FIPS vectors,
+and the guard that stops a dictation typing into Verba's own window.
 
-### Diagnostics
+</details>
 
-The binary carries its own instruments. Each exists because something was once wrong
-that could not be diagnosed by reading the code.
+<details>
+<summary><b>Diagnostics — the built-in instruments</b></summary>
+
+<br>
+
+The binary carries its own instruments. Each exists because something was once wrong that
+couldn't be diagnosed by reading the code.
 
 | Command | What it answers |
 |---|---|
 | `--state` | The exact payload the settings window renders from |
+| `--python` | Which interpreter the sidecar engines will use, and why |
 | `--meters [secs]` | Live spectrum from the real microphone |
 | `--transcribe <wav>` | Engine timing without the hotkey or overlay |
 | `--format <text> <exe>` | Mode routing and both formatting passes, no microphone |
+| `--learned` | Every learned term, and what each engine does with it |
+| `--fix "<heard>" "<meant>"` | Record a correction without dictating it |
 | `--accent` | The Windows accent colour and theme as Verba resolves them |
-| `--python` | Which interpreter the sidecar engines will use, and why |
 | `--capture-test` | Whether the desktop capture behind the overlay works |
 | `--inject-test <text>` | Text insertion with no model and no microphone |
 | `--overlay-test [visual]` | Drive the overlay through its states |
 | `--onboard` | Replay the first-run flow |
-| `--fix "<heard>" "<meant>"` | Record a correction without dictating it |
-| `--learned` | Every learned term, and what each engine will do with it |
-| `--check-update` | What the background watcher sees, without waiting for it |
-| `--self-update` | Run the whole cycle now: check, download, verify, swap, relaunch |
+| `--check-update` / `--self-update` | Check for, or run, an update now |
+
+</details>
 
 ---
 
-## Status
+## Status and known gaps
 
-Verba is early. It works and it is used daily, but the version number is honest.
+Verba is early. It works and is used daily, but the version number is honest.
 
-Known gaps: Parakeet runs in offline mode rather than truly streaming; there is no
-dictation history; per-mode override hotkeys are not implemented; Windows 10 is
-untested.
-
-**Recogniser bias is whisper-only.** Learned terms and pack vocabulary are fed to
-whisper through `initial_prompt`. sherpa-onnx has an equivalent — hotwords — but it
-encodes them against the model's own token table, and Parakeet ships a 1025-piece
-BPE vocabulary with no sentencepiece model to split new words with, so every hotword
-is rejected as unencodable. On Parakeet, learned terms still take effect as
-deterministic rewrites; the model itself is not steered. `--learned` says which
-applies to the engine you are on.
-
-Windows only for now. The platform layer is Win32 throughout, and a Linux or
-Android port is a separate piece of work rather than a flag.
+- Parakeet runs offline rather than truly streaming.
+- No dictation history yet.
+- Per-mode override hotkeys aren't implemented.
+- Windows 10 is untested; Linux and Android are not supported — the platform layer is Win32 throughout.
+- The binary is unsigned.
+- **Recogniser bias is whisper-only.** Learned terms and pack vocabulary are fed to whisper via
+  `initial_prompt`. sherpa-onnx has hotwords, but it encodes them against the model's own token
+  table and Parakeet ships a 1025-piece BPE vocabulary with no sentencepiece model to split new
+  words with, so every hotword is rejected. On Parakeet, learned terms still apply as
+  deterministic rewrites — the model itself just isn't steered.
 
 ---
 
 ## Licence
 
-Verba is free software under the [GNU GPL v3](LICENSE). You may use, study, share and
-modify it. If you distribute a modified version, it must also be GPL v3 and its source
-must be available.
+[GPL-3.0](LICENSE). Use it, study it, share it, change it. If you distribute a modified version
+it must also be GPL-3.0 with source available.
 
-Third-party components keep their own licences — whisper.cpp (MIT), Tauri (MIT/Apache
-2.0), sherpa-onnx (Apache 2.0). Speech models each carry their own terms, shown next to
-them in the models list; Parakeet in particular is CC-BY-4.0 from NVIDIA.
+Bundled components keep their own licences: whisper.cpp (MIT), Tauri (MIT/Apache-2.0),
+sherpa-onnx (Apache-2.0). Speech models carry their own terms, shown beside them in the models
+list — Parakeet is CC-BY-4.0 from NVIDIA.
 
-Copyright (C) 2026 Sambuddha Roy.
+Copyright © 2026 Sambuddha Roy.
