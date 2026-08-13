@@ -19,6 +19,25 @@
 
   --sans: Manrope, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+
+  /* Surface tint and cast shadow, as in settings.css. */
+  --tint-rgb: 255, 255, 255;
+  --shade-rgb: 0, 0, 0;
+  /* The glass panel's own ground. */
+  --glass: 10, 10, 14;
+  --glass-alpha: .72;
+}
+
+/* Light mode.
+ *
+ * The panel stays dark in both themes on purpose: it floats over whatever the
+ * user is working in — often a dark editor — and a light slab there is a
+ * flashbang. What changes is how far it leans that way, so it still reads as
+ * belonging to a light desktop rather than being a hole in it. */
+:root[data-theme="light"] {
+  --glass: 28, 28, 34;
+  --glass-alpha: .60;
+  --shade-rgb: 90, 90, 100;
 }
 
 * { box-sizing: border-box; }
@@ -119,7 +138,7 @@ html, body {
   position: absolute;
   left: 0; right: 0; bottom: -2px;
   height: 46px;
-  background: linear-gradient(rgba(8, 8, 11, 0), rgba(8, 8, 11, .55));
+  background: linear-gradient(rgba(var(--glass), 0), rgba(var(--glass), .55));
   opacity: 0;
   transition: opacity .7s ease;
   pointer-events: none;
@@ -144,8 +163,8 @@ html, body {
 #meta { padding: 0 4px 12px; }
 
 #status, #g-status { color: var(--pink); }
-#timer, #g-timer   { font: 600 11.5px var(--sans); color: rgba(255,255,255,.7); }
-#engine, #g-engine { margin-left: auto; color: rgba(255,255,255,.3); }
+#timer, #g-timer   { font: 600 11.5px var(--sans); color: rgba(var(--tint-rgb), .7); }
+#engine, #g-engine { margin-left: auto; color: rgba(var(--tint-rgb), .3); }
 
 /* Minimalist: no well, no inset rule, no second surface. The text sits
    directly on the frosted panel and the wave stays the only ornament. */
@@ -153,7 +172,7 @@ html, body {
   position: relative;
   padding: 4px 4px 2px;
   font: 400 18px/1.72 var(--sans);
-  color: rgba(255, 255, 255, .96);
+  color: rgba(var(--tint-rgb), .96);
   letter-spacing: -.006em;
   text-wrap: pretty;
   min-height: 32px;
@@ -188,9 +207,9 @@ html, body {
   opacity: 0;
   border-radius: 22px;
   padding: 18px 22px 20px;
-  background: rgba(26, 26, 28, .94);
-  box-shadow: 0 24px 60px -22px rgba(0, 0, 0, .9),
-              inset 0 0 0 1px rgba(255, 255, 255, .05);
+  background: rgba(var(--glass), .94);
+  box-shadow: 0 24px 60px -22px rgba(var(--shade-rgb), .9),
+              inset 0 0 0 1px rgba(var(--tint-rgb), .05);
   transition: width .7s cubic-bezier(.2, 1.04, .28, 1), opacity .4s ease;
 }
 
@@ -200,7 +219,7 @@ html, body {
   justify-content: space-between;
   font: 400 10.5px var(--mono);
   letter-spacing: .14em;
-  color: rgba(255, 255, 255, .42);
+  color: rgba(var(--tint-rgb), .42);
   margin-bottom: 16px;
 }
 
@@ -238,7 +257,7 @@ html, body {
   top: 50%;
   height: 2px;
   transform: translateY(-50%);
-  background-image: linear-gradient(90deg, rgba(255,255,255,.3) 0 2px, transparent 2px 100%);
+  background-image: linear-gradient(90deg, rgba(var(--tint-rgb), .3) 0 2px, transparent 2px 100%);
   background-size: 9px 2px;
   pointer-events: none;
 }
@@ -255,7 +274,7 @@ html, body {
 
 #min-line {
   font: 400 13.5px/1.6 var(--sans);
-  color: rgba(255, 255, 255, .9);
+  color: rgba(var(--tint-rgb), .9);
   letter-spacing: -.003em;
   text-wrap: pretty;
   height: 0;
@@ -328,13 +347,13 @@ html, body {
   /* Thin enough that the core behind it reads through as colour, which is what
      makes this frosted rather than merely dark. Brightness below 1 keeps the
      blue from washing the text out. */
-  background: rgba(9, 12, 20, .46);
+  background: rgba(var(--glass), calc(var(--glass-alpha) * .64));
   backdrop-filter: blur(30px) saturate(180%) brightness(.62);
   -webkit-backdrop-filter: blur(30px) saturate(180%) brightness(.62);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .16),
-    inset 0 0 0 1px rgba(120, 180, 255, .12),
-    0 30px 80px -30px rgba(0, 0, 0, .95);
+    inset 0 1px 0 rgba(var(--tint-rgb), .16),
+    inset 0 0 0 1px rgba(var(--accent-rgb), .16),
+    0 30px 80px -30px rgba(var(--shade-rgb), .95);
 }
 
 #glow-meta { padding: 0 1px; }
@@ -343,7 +362,7 @@ html, body {
 #g-line {
   border-radius: 16px;
   font: 400 15.5px/1.68 var(--sans);
-  color: rgba(255, 255, 255, .96);
+  color: rgba(var(--tint-rgb), .96);
   letter-spacing: -.004em;
   text-wrap: pretty;
   height: 0;
@@ -353,4 +372,4 @@ html, body {
               margin-top .7s cubic-bezier(.22, 1, .36, 1);
 }
 #g-line.open { height: 88px; margin-top: 11px; }
-#g-line .caret { background: #7FD0FF; box-shadow: 0 0 10px 2px rgba(127, 208, 255, .7); }
+#g-line .caret { background: var(--accent); box-shadow: 0 0 10px 2px rgba(var(--accent-rgb), .7); }

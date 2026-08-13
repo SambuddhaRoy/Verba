@@ -62,6 +62,11 @@ if (listen) {
     reload();
   }).catch(e => console.error('engine listen rejected', e));
 
+  // The accent follows the wallpaper when Windows picks one automatically, so
+  // it can change without the user opening any colour setting.
+  listen('verba:accent', ({ payload }) => applySystemTheme(payload.accent))
+    .catch(e => console.error('accent listen rejected', e));
+
   // Fired by both the manual download and the background watcher, so the card
   // reflects an update that started without anyone opening this window.
   listen('verba:update', ({ payload }) => {
@@ -279,17 +284,9 @@ async function boot() {
   const s = await invoke('get_state');
   cfg = s.config;
 
-  // Windows accent, applied before anything paints with it. Everything else in
-  // this window is grey, so these four values are the entire palette.
-  if (s.accent) {
-    const r = document.documentElement.style;
-    r.setProperty('--accent', s.accent.base);
-    // The base accent can be dark enough to be unreadable on a dark surface;
-    // Windows uses the light variants for exactly that reason.
-    r.setProperty('--accent-light', s.accent.light2);
-    r.setProperty('--accent-dim', s.accent.dark1);
-    r.setProperty('--accent-rgb', s.accent.rgb);
-  }
+  // Windows accent and light/dark mode, applied before anything paints with
+  // them. Everything else in this window is grey, so this is the whole palette.
+  applySystemTheme(s.accent);
 
   // Hardware summary in the sidebar.
   const hw = s.hardware;
@@ -465,10 +462,81 @@ async function boot() {
   $('cfgpath').textContent = s.config_path;
   $('about-sub').textContent = `Verba ${s.version} — local-first speech to text.`;
   buildUpdates(s);
+  buildPython(s);
   buildPacks();
   buildLearning();
 
   render();
+}
+
+/* --- python --------------------------------------------------------------- */
+
+/**
+ * Two of the three engines are Python sidecars, and until now the absence of
+ * Python only surfaced as a one-line failure at install time — after the user
+ * had already picked the engine. This says so up front, and offers the fix.
+ *
+ * Shown only when there is something to say: a working Python needs no card.
+ */
+function buildPython(s) {
+  const card = $('py-card'), dot = $('py-dot'), state = $('py-state'),
+        note = $('py-note'), action = $('py-action');
+  const py = s.python || {};
+  dot.className = 'dot';
+  action.hidden = true;
+  action.disabled = false;
+
+  if (py.state === 'ok') {
+    // Nothing to fix, so nothing to show — unless the user is on an engine
+    // that needs it, where confirming it works is worth one line.
+    const needsPy = cfg.engine === 'parakeet' || cfg.engine === 'faster-whisper';
+    card.hidden = !needsPy;
+    dot.classList.add('up');
+    state.textContent = `PYTHON ${py.version}`;
+    note.textContent = py.path;
+    return;
+  }
+
+  card.hidden = false;
+  dot.classList.add(py.state === 'too-old' ? 'down' : 'gone');
+
+  if (py.state === 'too-old') {
+    state.textContent = `PYTHON ${py.version}`;
+    note.textContent =
+      `Parakeet and faster-whisper need Python ${py.needs} or newer. Found ${py.version} at ${py.path}.`;
+  } else if (py.state === 'store-stub-only') {
+    state.textContent = 'NOT INSTALLED';
+    // Worth spelling out: typing `python` in a terminal does something, so the
+    // user reasonably believes it is installed.
+    note.textContent =
+      'Windows ships a placeholder that opens the Microsoft Store, which is why ' +
+      'typing python appears to work. Parakeet and faster-whisper need the real thing.';
+  } else {
+    state.textContent = 'NOT INSTALLED';
+    note.textContent =
+      'Parakeet and faster-whisper run as Python sidecars. whisper.cpp needs nothing extra.';
+  }
+
+  action.hidden = false;
+  if (s.winget) {
+    action.textContent = 'Install Python';
+    action.onclick = () => {
+      action.disabled = true;
+      action.textContent = 'Installing…';
+      $('engine-hint').textContent = 'Installing Python…';
+      invoke('install_python').catch(e => {
+        action.disabled = false;
+        action.textContent = 'Install Python';
+        toast(`${e}`);
+      });
+    };
+  } else {
+    // No winget: sending them to python.org beats pretending we can do it.
+    action.textContent = 'Open python.org';
+    action.onclick = () =>
+      invoke('open_url', { url: 'https://www.python.org/downloads/windows/' })
+        .catch(e => toast(`${e}`));
+  }
 }
 
 /* --- packs and learning --------------------------------------------------- */

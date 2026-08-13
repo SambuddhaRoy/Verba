@@ -89,8 +89,13 @@ function hslToRgb(h, s, l) {
   return [ch(h + 1 / 3), ch(h), ch(h - 1 / 3)].map(v => Math.round(v * 255));
 }
 
-/** Rebuild both palettes around a hue. */
-function applyAccent(hex) {
+/** Rebuild both palettes around a hue, for the given Windows theme. */
+function applyAccent(hex, theme) {
+  // The overlay floats over whatever the user is working in, so it stays a
+  // dark lens in both themes — a light panel over a dark editor would be a
+  // flashbang. What light mode changes is the surface tint and the text, which
+  // overlay.css takes from data-theme.
+  document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
   const [h, s0] = hexToHsl(hex);
   // Capped because boosting an already saturated accent lands on neon — a
   // stock Windows blue came out as almost pure cyan before the ceiling.
@@ -545,7 +550,7 @@ if (!api?.listen) {
     if (payload.phase !== phase) setPhase(payload.phase);
     if (Array.isArray(payload.bands)) setBands(payload.bands);
     if (payload.backdrop) setBackdrop(payload.backdrop);
-    if (payload.accent?.base) applyAccent(payload.accent.base);
+    if (payload.accent?.base) applyAccent(payload.accent.base, payload.accent.theme);
 
     if (typeof payload.elapsed === 'number') {
       const s = Math.floor(payload.elapsed);
@@ -580,6 +585,13 @@ if (!api?.listen) {
       setText(payload.text, !!payload.partial);
     }
   }).catch(err => console.error('Verba: listen() rejected', err));
+
+  // The overlay was previously given its palette once, in the boot state, and
+  // never again — so changing the Windows accent, or the wallpaper it is
+  // derived from, left the wave and glow on the old colours until restart.
+  api.listen('verba:accent', ({ payload }) => {
+    if (payload.accent?.base) applyAccent(payload.accent.base, payload.accent.theme);
+  }).catch(err => console.error('Verba: accent listen rejected', err));
 }
 
 setVisual('ribbons');

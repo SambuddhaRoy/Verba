@@ -15,11 +15,11 @@
 .dots i {
   width: 20px; height: 3px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, .12);
+  background: rgba(var(--tint-rgb), .12);
   transition: background .25s ease;
 }
 .dots i.on   { background: var(--accent-light); }
-.dots i.past { background: rgba(255, 255, 255, .30); }
+.dots i.past { background: rgba(var(--tint-rgb), .30); }
 
 main.ob {
   /* The footer and header are fixed height; this is what is left. Steps scroll
@@ -88,7 +88,7 @@ main.ob {
   height: 0;
   margin: 0;
   border-radius: 3px;
-  background: rgba(255, 255, 255, .07);
+  background: rgba(var(--tint-rgb), .07);
   overflow: hidden;
   transition: height .2s ease, margin .2s ease;
 }
@@ -137,8 +137,8 @@ details.more summary:hover { color: var(--text); }
   font: 600 12px var(--sans);
   padding: 7px 12px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, .06);
-  box-shadow: var(--spec2), var(--hair), 0 2px 6px rgba(0, 0, 0, .35);
+  background: rgba(var(--tint-rgb), .06);
+  box-shadow: var(--spec2), var(--hair), 0 2px 6px rgba(var(--shade-rgb), .35);
 }
 
 .card.tryout { display: block; min-height: 108px; padding: 15px; }
@@ -169,15 +169,15 @@ footer {
   align-items: center;
   gap: 8px;
   padding: 0 26px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+  box-shadow: inset 0 1px 0 rgba(var(--tint-rgb), .05);
 }
 footer .grow { flex: 1; }
 .btn.ghost { background: none; box-shadow: none; color: var(--text-2); }
-.btn.ghost:hover { color: var(--text); background: rgba(255, 255, 255, .05); }
+.btn.ghost:hover { color: var(--text); background: rgba(var(--tint-rgb), .05); }
 .btn.primary {
   background: rgba(var(--accent-rgb), .22);
   box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .38), var(--spec);
-  color: #fff;
+  color: var(--ink);
   font-weight: 600;
 }
 .btn.primary:hover { background: rgba(var(--accent-rgb), .30); }

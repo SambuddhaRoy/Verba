@@ -37,18 +37,22 @@ pub fn install<F: FnMut(&str)>(mut report: F) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
 
     if !venv_python().is_file() {
-        report("creating Python environment…");
-        let out = Command::new("python")
+        // Resolved properly rather than trusting PATH: on a machine with no
+        // Python, PATH still has the Microsoft Store aliases, and spawning one
+        // opens the Store instead of failing.
+        let python = crate::python::require()?;
+        report(&format!("creating Python environment ({})…", python.display()));
+        let out = crate::childguard::hidden(Command::new(&python))
             .args(["-m", "venv", &dir.to_string_lossy()])
             .output()
-            .map_err(|e| anyhow!("python not found on PATH: {e}"))?;
+            .map_err(|e| anyhow!("could not run {}: {e}", python.display()))?;
         if !out.status.success() {
             bail!("venv failed: {}", String::from_utf8_lossy(&out.stderr));
         }
     }
 
     report("installing sherpa-onnx…");
-    let out = Command::new(venv_python())
+    let out = crate::childguard::hidden(Command::new(venv_python()))
         .args(["-m", "pip", "install", "--disable-pip-version-check", "sherpa-onnx", "numpy"])
         .output()?;
     if !out.status.success() {

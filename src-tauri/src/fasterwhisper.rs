@@ -41,18 +41,20 @@ pub fn install<F: FnMut(&str)>(mut report: F) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
 
     if !venv_python().is_file() {
-        report("creating Python environment…");
-        let out = Command::new("python")
+        // See parakeet::install — PATH alone finds the Store alias.
+        let python = crate::python::require()?;
+        report(&format!("creating Python environment ({})…", python.display()));
+        let out = crate::childguard::hidden(Command::new(&python))
             .args(["-m", "venv", &dir.to_string_lossy()])
             .output()
-            .map_err(|e| anyhow!("python not found on PATH: {e}"))?;
+            .map_err(|e| anyhow!("could not run {}: {e}", python.display()))?;
         if !out.status.success() {
             bail!("venv failed: {}", String::from_utf8_lossy(&out.stderr));
         }
     }
 
     report("installing faster-whisper (this takes a few minutes)…");
-    let out = Command::new(venv_python())
+    let out = crate::childguard::hidden(Command::new(venv_python()))
         .args(["-m", "pip", "install", "--disable-pip-version-check", "faster-whisper"])
         .output()?;
     if !out.status.success() {
@@ -60,7 +62,7 @@ pub fn install<F: FnMut(&str)>(mut report: F) -> Result<()> {
     }
 
     report("verifying…");
-    let out = Command::new(venv_python())
+    let out = crate::childguard::hidden(Command::new(venv_python()))
         .args(["-c", "import faster_whisper, ctranslate2; print(ctranslate2.__version__)"])
         .output()?;
     if !out.status.success() {

@@ -9,6 +9,28 @@
  * rating to someone who cannot reach it would be a lie by omission, so when the
  * two differ the bar shows what they will actually get and says why.
  */
+/* Push the Windows accent and light/dark theme onto the document.
+ *
+ * Shared by the settings and onboarding windows, and called both at load and
+ * whenever the engine reports a change — the accent follows the wallpaper when
+ * Windows is set to pick one automatically, so it moves without the user
+ * touching a colour setting at all.
+ */
+function applySystemTheme(accent) {
+  if (!accent) return;
+  const r = document.documentElement;
+  r.style.setProperty('--accent', accent.base);
+  // The base accent can be dark enough to be unreadable on a dark surface, and
+  // light enough to vanish on a light one, so each theme takes the variant
+  // Windows itself uses for accent text there.
+  r.style.setProperty('--accent-light',
+    accent.theme === 'light' ? accent.dark1 : accent.light2);
+  r.style.setProperty('--accent-dim',
+    accent.theme === 'light' ? accent.light2 : accent.dark1);
+  r.style.setProperty('--accent-rgb', accent.rgb);
+  r.dataset.theme = accent.theme === 'light' ? 'light' : 'dark';
+}
+
 function ratingBars(m) {
   const here = m.speed_here ?? m.speed;
   // A couple of points of slack: rounding alone should not print a caveat.

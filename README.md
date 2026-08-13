@@ -82,6 +82,13 @@ or smaller, since this runs between you finishing a sentence and the text appear
 A fidelity check rejects any rewrite that drops more than 60% of the words or loses a
 number that was in the original, falling back to the cleaned transcript.
 
+**Follows Windows.** The accent colour and light/dark theme are read from the same
+settings Windows uses for its own chrome, and re-read while running — so changing
+your accent, or a wallpaper that Windows derives an accent from, retints the app
+within a second or two rather than at the next restart. Light mode is a full
+variant, not an inverted filter. The overlay stays a dark lens in both, because it
+floats over whatever you are working in.
+
 **Three overlay treatments.** An interference-pattern ribbon visualiser, a glow that
 deforms with the spectrum, and an ultra-minimal recorder. All three are audio-reactive
 and tinted with your Windows accent colour.
@@ -126,6 +133,13 @@ hardware, so it reads as a decision rather than a default.
 Three engines are supported. **whisper.cpp** is compiled into the binary and needs
 nothing extra. **Parakeet** (via sherpa-onnx) and **faster-whisper** run as Python
 sidecars, and Verba installs their dependencies on demand when you pick one.
+
+Those two need Python 3.9 or newer. Verba checks for it before you commit to an
+engine, and offers to install it via winget. Note that Windows puts placeholder
+`python.exe` and `python3.exe` files on your PATH which only open the Microsoft
+Store — so typing `python` in a terminal appears to do something even when nothing
+is installed. Verba ignores those and looks for a real interpreter; `--python`
+reports what it found.
 
 For a rough sense of scale, on one laptop (RTX-class GPU, Vulkan): whisper.cpp
 `small.en` transcribed a short utterance in ~300 ms, and Parakeet TDT 110M on CPU did
@@ -192,7 +206,8 @@ that could not be diagnosed by reading the code.
 | `--meters [secs]` | Live spectrum from the real microphone |
 | `--transcribe <wav>` | Engine timing without the hotkey or overlay |
 | `--format <text> <exe>` | Mode routing and both formatting passes, no microphone |
-| `--accent` | The Windows accent colour as Verba resolves it |
+| `--accent` | The Windows accent colour and theme as Verba resolves them |
+| `--python` | Which interpreter the sidecar engines will use, and why |
 | `--capture-test` | Whether the desktop capture behind the overlay works |
 | `--inject-test <text>` | Text insertion with no model and no microphone |
 | `--overlay-test [visual]` | Drive the overlay through its states |
