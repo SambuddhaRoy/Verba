@@ -21,17 +21,62 @@
   --accent-dim: #005FAA;
   --accent-rgb: 0, 120, 212;
 
+  /* Every raised surface, hairline and specular edge is drawn as --tint over
+     the page, and every cast shadow as --shade. On a dark ground that is white
+     over black; light mode swaps them, which is why the whole theme is a
+     handful of variable overrides rather than a duplicated stylesheet. */
+  --tint-rgb: 255, 255, 255;
+  --shade-rgb: 0, 0, 0;
+  --page: 12, 12, 14;
+  --page-alpha: .34;
+  /* Text that sits on the accent. Light accents need dark text on them, but
+     Windows only ships accents meant to carry white, so this stays white and
+     the light theme uses --accent-dim where contrast matters. */
+  --on-accent: #fff;
+  /* The strong text colour. Pure white on dark, near-black on light — this is
+     the one place a plain --tint alpha is not enough. */
+  --ink: #fff;
+  /* The native dropdown popup is drawn by the OS outside the page, so it takes
+     opaque colours rather than the translucent tokens everything else uses. */
+  --menu-bg: #1b1b1f;
+  --menu-fg: #fff;
+
   --sans: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
 
-  --fill:  rgba(255, 255, 255, .035);
-  --spec:  inset 0 1px 0 rgba(255, 255, 255, .12);
-  --spec2: inset 0 1px 0 rgba(255, 255, 255, .28);
-  --hair:  inset 0 0 0 1px rgba(255, 255, 255, .06);
+  --fill:  rgba(var(--tint-rgb), .035);
+  --spec:  inset 0 1px 0 rgba(var(--tint-rgb), .12);
+  --spec2: inset 0 1px 0 rgba(var(--tint-rgb), .28);
+  --hair:  inset 0 0 0 1px rgba(var(--tint-rgb), .06);
 
-  --text:   rgba(255, 255, 255, .92);
-  --text-2: rgba(255, 255, 255, .58);
-  --text-3: rgba(255, 255, 255, .40);
+  --text:   rgba(var(--tint-rgb), .92);
+  --text-2: rgba(var(--tint-rgb), .58);
+  --text-3: rgba(var(--tint-rgb), .40);
+}
+
+/* Light mode. Set from the Windows app-theme setting, which the engine polls
+   so a change in Windows Settings reaches the running app.
+
+   Alphas are raised, not merely inverted: black at .035 over a light ground is
+   far fainter than white at .035 over a dark one, and a straight inversion
+   leaves every card invisible. */
+:root[data-theme="light"] {
+  --tint-rgb: 0, 0, 0;
+  --shade-rgb: 120, 120, 130;
+  --page: 250, 250, 252;
+  --page-alpha: .62;
+  --ink: #101014;
+  --menu-bg: #fbfbfd;
+  --menu-fg: #101014;
+
+  --fill:  rgba(var(--tint-rgb), .045);
+  --spec:  inset 0 1px 0 rgba(255, 255, 255, .7);
+  --spec2: inset 0 1px 0 rgba(255, 255, 255, .9);
+  --hair:  inset 0 0 0 1px rgba(var(--tint-rgb), .09);
+
+  --text:   rgba(var(--tint-rgb), .90);
+  --text-2: rgba(var(--tint-rgb), .62);
+  --text-3: rgba(var(--tint-rgb), .48);
 }
 
 * { box-sizing: border-box; }
@@ -41,7 +86,7 @@ html, body {
   height: 100%;
   /* Thin: the window is Acrylic, which is the effect that actually blurs what
      is behind it. Anything much more opaque throws that away. */
-  background: rgba(12, 12, 14, .34);
+  background: rgba(var(--page), var(--page-alpha));
   color: var(--text);
   font-family: var(--sans);
   font-variant-numeric: tabular-nums;
@@ -60,7 +105,7 @@ header {
   align-items: center;
   gap: 9px;
   padding-left: 16px;
-  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .05);
+  box-shadow: inset 0 -1px 0 rgba(var(--tint-rgb), .05);
 }
 
 /* The app mark is the one place the product's own colours survive, because it
@@ -84,7 +129,7 @@ header {
   font: 300 12px system-ui;
   cursor: pointer;
 }
-.winbtns button:hover { background: rgba(255, 255, 255, .07); }
+.winbtns button:hover { background: rgba(var(--tint-rgb), .07); }
 #close:hover { background: #C42B1C; color: #fff; }
 
 /* ------------------------------------------------------------------ shell */
@@ -98,7 +143,7 @@ nav {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, .04);
+  box-shadow: inset -1px 0 0 rgba(var(--tint-rgb), .04);
 }
 
 /* Selected nav uses a left accent bar rather than a tinted fill — Windows'
@@ -129,11 +174,11 @@ nav {
   transition: height .18s cubic-bezier(.22, 1, .36, 1);
 }
 .nav i { display: none; }
-.nav:hover { color: var(--text); background: rgba(255, 255, 255, .05); }
+.nav:hover { color: var(--text); background: rgba(var(--tint-rgb), .05); }
 .nav.on {
-  background: rgba(255, 255, 255, .07);
+  background: rgba(var(--tint-rgb), .07);
   box-shadow: var(--spec);
-  color: #fff;
+  color: var(--ink);
   font-weight: 600;
 }
 .nav.on::before { height: 17px; }
@@ -142,7 +187,7 @@ nav {
   margin-top: auto;
   padding: 12px 13px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, .03);
+  background: rgba(var(--tint-rgb), .03);
 }
 .rig .mono {
   font-size: 10px;
@@ -155,7 +200,7 @@ nav {
 section { flex: 1; padding: 22px 26px; overflow-y: auto; }
 section::-webkit-scrollbar { width: 10px; }
 section::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, .12);
+  background: rgba(var(--tint-rgb), .12);
   border-radius: 5px;
   border: 3px solid transparent;
   background-clip: content-box;
@@ -196,13 +241,13 @@ h1 { margin: 0; font: 600 18px var(--sans); letter-spacing: -.01em; }
   padding: 0 14px;
   border: 0;
   border-radius: 5px;
-  background: rgba(255, 255, 255, .07);
+  background: rgba(var(--tint-rgb), .07);
   box-shadow: var(--spec);
   color: var(--text);
   font: 400 12px var(--sans);
   cursor: pointer;
 }
-.btn:hover { background: rgba(255, 255, 255, .12); }
+.btn:hover { background: rgba(var(--tint-rgb), .12); }
 .btn.arm {
   background: var(--accent);
   box-shadow: none;
@@ -212,14 +257,14 @@ h1 { margin: 0; font: 600 18px var(--sans); letter-spacing: -.01em; }
 .btn.tiny { height: 26px; padding: 0 11px; font-size: 11.5px; }
 
 .keys { display: flex; align-items: center; gap: 6px; }
-.keys.arm kbd { box-shadow: inset 0 0 0 1px var(--accent-light), 0 2px 6px rgba(0,0,0,.4); }
+.keys.arm kbd { box-shadow: inset 0 0 0 1px var(--accent-light), 0 2px 6px rgba(var(--shade-rgb), .4); }
 kbd {
   min-width: 30px; height: 28px;
   padding: 0 11px;
   display: grid; place-items: center;
   border-radius: 4px;
-  background: rgba(255, 255, 255, .1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 2px 6px rgba(0, 0, 0, .4);
+  background: rgba(var(--tint-rgb), .1);
+  box-shadow: inset 0 1px 0 rgba(var(--tint-rgb), .16), 0 2px 6px rgba(var(--shade-rgb), .4);
   font: 500 12px var(--sans);
 }
 .keys s { color: var(--text-3); text-decoration: none; font-size: 11px; }
@@ -230,14 +275,16 @@ select {
   padding: 0 12px;
   border: 0;
   border-radius: 5px;
-  background: rgba(255, 255, 255, .07);
+  background: rgba(var(--tint-rgb), .07);
   box-shadow: var(--spec);
   color: var(--text);
   font: 400 12px var(--sans);
   cursor: pointer;
 }
 select:focus-visible { outline: 2px solid var(--accent-light); outline-offset: 1px; }
-select option { background: #1b1b1f; color: #fff; }
+/* The native dropdown list is not part of the page, so it needs real
+   colours rather than translucent tokens. */
+select option { background: var(--menu-bg); color: var(--menu-fg); }
 
 /* Toggle: Windows proportions, accent fill when on. */
 .tgl {
@@ -246,8 +293,8 @@ select option { background: #1b1b1f; color: #fff; }
   padding: 2px;
   border: 0;
   border-radius: 11px;
-  background: rgba(255, 255, 255, .09);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
+  background: rgba(var(--tint-rgb), .09);
+  box-shadow: inset 0 0 0 1px rgba(var(--tint-rgb), .3);
   cursor: pointer;
   transition: background .18s ease, box-shadow .18s ease;
 }
@@ -272,7 +319,7 @@ input[type=range] {
   margin-top: 14px;
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, .14);
+  background: rgba(var(--tint-rgb), .14);
   cursor: pointer;
 }
 input[type=range]::-webkit-slider-thumb {
@@ -280,7 +327,7 @@ input[type=range]::-webkit-slider-thumb {
   width: 18px; height: 18px;
   border-radius: 50%;
   background: var(--accent-light);
-  box-shadow: 0 0 0 3px rgba(12, 12, 14, .9), 0 1px 4px rgba(0, 0, 0, .6);
+  box-shadow: 0 0 0 3px rgba(12, 12, 14, .9), 0 1px 4px rgba(var(--shade-rgb), .6);
 }
 
 /* ------------------------------------------------------------------ modes */
@@ -345,7 +392,7 @@ textarea:focus-visible { outline: 2px solid var(--accent-light); outline-offset:
   cursor: pointer;
   display: block;
 }
-.llm:hover { background: rgba(255, 255, 255, .06); }
+.llm:hover { background: rgba(var(--tint-rgb), .06); }
 .llm.on {
   background: rgba(var(--accent-rgb), .16);
   box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .5);
@@ -356,7 +403,7 @@ textarea:focus-visible { outline: 2px solid var(--accent-light); outline-offset:
 .llm .rec { font: 400 10px var(--mono); letter-spacing: .04em; color: var(--accent-light); }
 .llm .act { margin-left: auto; }
 .llm .note { margin-top: 7px; font: 400 11.5px/1.45 var(--sans); color: var(--text-3); }
-.llm .pull { position: relative; height: 0; margin-top: 0; border-radius: 2px; background: rgba(255,255,255,.1); overflow: hidden; transition: height .3s ease, margin-top .3s ease; }
+.llm .pull { position: relative; height: 0; margin-top: 0; border-radius: 2px; background: rgba(var(--tint-rgb), .1); overflow: hidden; transition: height .3s ease, margin-top .3s ease; }
 .llm.pulling .pull { height: 4px; margin-top: 10px; }
 .llm .pull-fill { width: 0; height: 100%; border-radius: 2px; background: var(--accent-light); transition: width .25s ease; }
 .llm .pull-txt { position: absolute; right: 0; top: -16px; font: 400 10px var(--mono); color: var(--text-3); }
@@ -387,7 +434,7 @@ textarea:focus-visible { outline: 2px solid var(--accent-light); outline-offset:
 .rule .del:hover { background: #C42B1C; color: #fff; }
 code {
   font: 400 11px var(--mono);
-  background: rgba(255,255,255,.08);
+  background: rgba(var(--tint-rgb), .08);
   border-radius: 3px;
   padding: 1px 4px;
 }
@@ -399,7 +446,7 @@ code {
   gap: 4px;
   padding: 4px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, .04);
+  background: rgba(var(--tint-rgb), .04);
   box-shadow: var(--spec);
   margin-bottom: 10px;
 }
@@ -413,7 +460,7 @@ code {
   font: 400 12px var(--sans);
   cursor: pointer;
 }
-.seg button:hover { background: rgba(255, 255, 255, .06); color: var(--text); }
+.seg button:hover { background: rgba(var(--tint-rgb), .06); color: var(--text); }
 .seg button.on {
   background: rgba(var(--accent-rgb), .22);
   box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .55);
@@ -440,7 +487,7 @@ code {
   cursor: pointer;
   display: block;
 }
-.model:hover { background: rgba(255, 255, 255, .06); }
+.model:hover { background: rgba(var(--tint-rgb), .06); }
 .model.on {
   background: rgba(var(--accent-rgb), .16);
   box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .5);
@@ -478,7 +525,7 @@ code {
 .rt {
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, .09);
+  background: rgba(var(--tint-rgb), .09);
   overflow: hidden;
 }
 .rt > i {
@@ -494,8 +541,8 @@ code {
 .rt > i.spd {
   background: repeating-linear-gradient(
     -45deg,
-    rgba(255, 255, 255, .55) 0 3px,
-    rgba(255, 255, 255, .22) 3px 6px);
+    rgba(var(--tint-rgb), .55) 0 3px,
+    rgba(var(--tint-rgb), .22) 3px 6px);
 }
 .rv { font: 400 10.5px var(--mono); color: var(--text-2); text-align: right; }
 /* The hardware caveat sits under its bar, spanning the value column. */
@@ -526,7 +573,7 @@ h2.sec:first-of-type { margin-top: 4px; }
   border: 0;
   border-radius: 8px;
   padding: 10px 12px;
-  background: rgba(0, 0, 0, .28);
+  background: rgba(var(--shade-rgb), .28);
   box-shadow: var(--hair);
   color: var(--text);
   font: 400 13px/1.5 var(--sans);
@@ -558,7 +605,7 @@ h2.sec:first-of-type { margin-top: 4px; }
   height: 0;
   margin-top: 0;
   border-radius: 2px;
-  background: rgba(255, 255, 255, .1);
+  background: rgba(var(--tint-rgb), .1);
   overflow: hidden;
   transition: height .3s ease, margin-top .3s ease;
 }
@@ -592,7 +639,7 @@ h2.sec:first-of-type { margin-top: 4px; }
   height: 0;
   margin-top: 0;
   border-radius: 2px;
-  background: rgba(255, 255, 255, .1);
+  background: rgba(var(--tint-rgb), .1);
   overflow: hidden;
   transition: height .3s ease, margin-top .3s ease;
 }
@@ -625,7 +672,7 @@ h2.sec:first-of-type { margin-top: 4px; }
   cursor: pointer;
   text-align: left;
 }
-.vis:hover { background: rgba(255, 255, 255, .06); }
+.vis:hover { background: rgba(var(--tint-rgb), .06); }
 .vis.on {
   background: rgba(var(--accent-rgb), .16);
   box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .5);
@@ -639,14 +686,14 @@ h2.sec:first-of-type { margin-top: 4px; }
   height: 78px;
   border-radius: 6px;
   background: #08080c;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+  box-shadow: inset 0 0 0 1px rgba(var(--tint-rgb), .05);
   display: grid;
   place-items: center;
   overflow: hidden;
 }
 .art-ribbons {
   background:
-    radial-gradient(60% 34% at 50% 50%, rgba(255,255,255,.95), transparent 70%),
+    radial-gradient(60% 34% at 50% 50%, rgba(var(--tint-rgb), .95), transparent 70%),
     radial-gradient(46% 30% at 34% 50%, #FF4E9A, transparent 70%),
     radial-gradient(46% 30% at 66% 50%, #6E7BFF, transparent 70%),
     radial-gradient(38% 26% at 50% 50%, #A88BFF, transparent 72%),
@@ -657,7 +704,7 @@ h2.sec:first-of-type { margin-top: 4px; }
   width: 62%; height: 40%;
   border-radius: 8px;
   background: rgba(8, 11, 20, .8);
-  box-shadow: 0 0 34px 8px rgba(43, 123, 255, .55), inset 0 1px 0 rgba(255,255,255,.14);
+  box-shadow: 0 0 34px 8px rgba(43, 123, 255, .55), inset 0 1px 0 rgba(var(--tint-rgb), .14);
 }
 
 /* Bars as a repeating gradient rather than elements — a static thumbnail does
@@ -668,10 +715,10 @@ h2.sec:first-of-type { margin-top: 4px; }
   left: 14%; top: 50%;
   width: 52%; height: 34%;
   transform: translateY(-50%);
-  background-image: linear-gradient(90deg, #fff 0 2px, transparent 2px 100%);
+  background-image: linear-gradient(90deg, var(--ink) 0 2px, transparent 2px 100%);
   background-size: 5px 100%;
-  -webkit-mask: radial-gradient(120% 100% at 30% 50%, #000 30%, rgba(0,0,0,.35) 100%);
-          mask: radial-gradient(120% 100% at 30% 50%, #000 30%, rgba(0,0,0,.35) 100%);
+  -webkit-mask: radial-gradient(120% 100% at 30% 50%, #000 30%, rgba(var(--shade-rgb), .35) 100%);
+          mask: radial-gradient(120% 100% at 30% 50%, #000 30%, rgba(var(--shade-rgb), .35) 100%);
 }
 .art-minimal .cur {
   position: absolute;
@@ -690,7 +737,7 @@ h2.sec:first-of-type { margin-top: 4px; }
   padding: 9px 16px;
   border-radius: 6px;
   background: rgba(38, 38, 42, .96);
-  box-shadow: var(--spec), var(--hair), 0 12px 30px -10px rgba(0,0,0,.8);
+  box-shadow: var(--spec), var(--hair), 0 12px 30px -10px rgba(var(--shade-rgb), .8);
   font: 400 12px var(--sans);
   opacity: 0;
   pointer-events: none;

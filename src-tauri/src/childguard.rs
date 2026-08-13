@@ -13,6 +13,21 @@
 
 use std::sync::OnceLock;
 
+/// Console-less child process.
+pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Run a console program without flashing a console window.
+///
+/// Verba is a windows-subsystem binary, so every `pip`, `venv`, `winget`,
+/// `where` and `py` it shells out to pops a black rectangle on screen for as
+/// long as it runs — which, for a pip install, is minutes. The sidecar spawns
+/// already did this; the installers did not.
+pub fn hidden(mut cmd: std::process::Command) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,

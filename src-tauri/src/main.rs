@@ -30,6 +30,7 @@ mod startup;
 mod stt;
 mod learn;
 mod packs;
+mod python;
 mod transcribe;
 mod update;
 
@@ -160,6 +161,12 @@ struct SettingsState {
     /// True when a verified newer binary is already downloaded and will be
     /// swapped in at the next idle moment.
     update_staged: bool,
+    /// Whether a usable Python exists, since two of the three engines are
+    /// Python sidecars and the failure is otherwise invisible until install
+    /// time.
+    python: python::Status,
+    /// Whether Verba can offer to install one itself.
+    winget: bool,
 }
 
 #[tauri::command]
@@ -189,7 +196,40 @@ fn get_state() -> SettingsState {
         llm_recommended: ollama::recommended_for(&hw2),
         version: env!("CARGO_PKG_VERSION"),
         update_staged: update::staged(),
+        python: python::status(),
+        winget: python::winget_available(),
     }
+}
+
+/// Install Python on the user's behalf, after they have asked for it.
+/// Reports through the same channel the engine installer uses, so the models
+/// panel shows one continuous progress line for "get this engine working".
+#[tauri::command]
+fn install_python(app: AppHandle) -> Result<(), String> {
+    std::thread::Builder::new()
+        .name("python-install".into())
+        .spawn(move || {
+            let say = |msg: &str, done: bool, error: Option<String>| {
+                let _ = app.emit(
+                    "verba:engine",
+                    serde_json::json!({ "id": "python", "message": msg,
+                                        "done": done, "error": error }),
+                );
+            };
+            let result = python::install(|m| {
+                log!("python: {m}");
+                say(m, false, None);
+            });
+            match result {
+                Ok(()) => say("Python installed", true, None),
+                Err(e) => {
+                    log!("python install failed: {e:#}");
+                    say("Python install failed", true, Some(e.to_string()));
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// The text of the most recent dictation, as inserted. In memory only: this is
@@ -508,6 +548,46 @@ fn hotkey_label(hk: &config::Hotkey) -> String {
     if hk.win { parts.push("Win"); }
     parts.push(&hk.label);
     parts.join("+")
+}
+
+/// Re-read the Windows accent and light/dark theme, and push them to every
+/// window when they change.
+///
+/// The overlay was given its palette once at boot and never again, so changing
+/// the accent — or the wallpaper, which Windows derives an automatic accent
+/// from — left it on the old colours until the app was restarted.
+///
+/// ponytail: polled rather than event-driven. The correct source is
+/// `UISettings::ColorValuesChanged`, but that needs a WinRT delegate kept alive
+/// across the app's lifetime and marshalled back onto a thread that can emit,
+/// which is a lot of machinery for something a registry read answers in
+/// microseconds. If this ever needs to be instant, that is the upgrade.
+fn spawn_theme_watch(app: AppHandle) {
+    /// Fast enough that flipping the theme in Settings looks immediate, slow
+    /// enough to be free.
+    const EVERY: Duration = Duration::from_millis(1200);
+
+    std::thread::Builder::new()
+        .name("theme-watch".into())
+        .spawn(move || {
+            let mut last = accent::detect();
+            loop {
+                std::thread::sleep(EVERY);
+                let now = accent::detect();
+                if now == last {
+                    continue;
+                }
+                log!("system colours changed: {} ({})", now.base, now.theme);
+                last = now.clone();
+                // Both windows listen for this; the overlay repaints its
+                // palette and the settings window re-themes in place.
+                let _ = app.emit(
+                    "verba:accent",
+                    serde_json::json!({ "accent": now }),
+                );
+            }
+        })
+        .ok();
 }
 
 /// Set once a verified newer binary is waiting. The engine loop reads it and
@@ -1084,6 +1164,25 @@ fn main() -> Result<()> {
         log!("light2 {}  <- accent text on dark", a.light2);
         log!("light3 {}", a.light3);
         log!("dark1  {}", a.dark1);
+        log!("theme  {}  <- Windows app theme", a.theme);
+        return Ok(());
+    }
+
+    // `verba --python` — what the engine installer will find, and why. A bare
+    // `python` on PATH can be a Microsoft Store alias that opens the Store
+    // rather than running, which is invisible until an install fails.
+    if arg1 == Some("--python") {
+        match python::status() {
+            python::Status::Ok { path, version } => log!("Python {version} at {path}"),
+            python::Status::TooOld { path, version, needs } => {
+                log!("Python {version} at {path} is too old; need {needs} or newer")
+            }
+            python::Status::StoreStubOnly => {
+                log!("no Python — only the Microsoft Store aliases are on PATH")
+            }
+            python::Status::Missing => log!("no Python found"),
+        }
+        log!("winget available: {}", python::winget_available());
         return Ok(());
     }
 
@@ -1295,7 +1394,8 @@ fn main() -> Result<()> {
             record_correction,
             learned_corrections,
             clear_corrections,
-            list_packs
+            list_packs,
+            install_python
         ])
         .setup(move |app| {
             let overlay_win = app
@@ -1346,6 +1446,7 @@ fn main() -> Result<()> {
             if config::load().auto_update {
                 spawn_update_watch(app.handle().clone());
             }
+            spawn_theme_watch(app.handle().clone());
 
             let handle = app.handle().clone();
             // The audio stream is !Send on Windows, so the engine owns the

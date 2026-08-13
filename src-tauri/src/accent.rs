@@ -22,6 +22,70 @@ pub struct Accent {
     /// Base as "r, g, b" so CSS can build rgba() at arbitrary alpha —
     /// `color-mix` would work too but this needs no fallback.
     pub rgb: String,
+    /// "light" or "dark", from the same app-theme setting Windows uses for its
+    /// own surfaces. Carried alongside the accent because the two change
+    /// together — switching theme also swaps which accent variant is legible.
+    pub theme: &'static str,
+}
+
+impl PartialEq for Accent {
+    /// Only the values that reach CSS. Used by the watcher to decide whether
+    /// anything actually changed, so it must not consider anything the UI
+    /// cannot see.
+    fn eq(&self, other: &Self) -> bool {
+        self.base == other.base
+            && self.light1 == other.light1
+            && self.light2 == other.light2
+            && self.light3 == other.light3
+            && self.dark1 == other.dark1
+            && self.rgb == other.rgb
+            && self.theme == other.theme
+    }
+}
+
+/// Whether Windows is in light or dark app mode.
+///
+/// `AppsUseLightTheme` rather than `SystemUsesLightTheme`: the first is the one
+/// that governs application surfaces, which is what Verba's windows are. The
+/// second controls the taskbar and Start, and users routinely set them apart.
+/// Missing key means dark, which is Windows' own default and this app's.
+fn theme() -> &'static str {
+    use windows::core::w;
+    use windows::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE,
+        REG_VALUE_TYPE,
+    };
+
+    unsafe {
+        let mut key = HKEY::default();
+        if RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+            None,
+            KEY_QUERY_VALUE,
+            &mut key,
+        )
+        .is_err()
+        {
+            return "dark";
+        }
+
+        let mut value = 0u32;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        let mut kind = REG_VALUE_TYPE::default();
+        let ok = RegQueryValueExW(
+            key,
+            w!("AppsUseLightTheme"),
+            None,
+            Some(&mut kind),
+            Some(&mut value as *mut u32 as *mut u8),
+            Some(&mut size),
+        )
+        .is_ok();
+        let _ = RegCloseKey(key);
+
+        if ok && value == 1 { "light" } else { "dark" }
+    }
 }
 
 fn hex(r: u8, g: u8, b: u8) -> String {
@@ -45,6 +109,7 @@ fn from_ui_settings() -> Option<Accent> {
         light3: hex(l3r, l3g, l3b),
         dark1: hex(d1r, d1g, d1b),
         rgb: format!("{r}, {g}, {b}"),
+        theme: theme(),
     })
 }
 
@@ -71,6 +136,7 @@ fn parse_palette(bytes: &[u8]) -> Option<Accent> {
         light3: hex(l3r, l3g, l3b),
         dark1: hex(d1r, d1g, d1b),
         rgb: format!("{r}, {g}, {b}"),
+        theme: theme(),
     })
 }
 
@@ -153,5 +219,6 @@ pub fn detect() -> Accent {
         light3: "#72B4F2".into(),
         dark1: "#005FAA".into(),
         rgb: "0, 120, 212".into(),
+        theme: theme(),
     })
 }

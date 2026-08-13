@@ -41,6 +41,9 @@ const save = () => invoke('set_config', { cfg }).catch(e => toast(`${e}`));
 /* --------------------------------------------------------------- progress */
 
 if (listen) {
+  listen('verba:accent', ({ payload }) => applySystemTheme(payload.accent))
+    .catch(e => console.error('accent listen rejected', e));
+
   listen('verba:download', ({ payload }) => {
     const card = $('rec-card');
     if (payload.file !== card.dataset.file) return;
@@ -150,13 +153,7 @@ async function reload() {
   s = await invoke('get_state');
   cfg = s.config;
 
-  if (s.accent) {
-    const r = document.documentElement.style;
-    r.setProperty('--accent', s.accent.base);
-    r.setProperty('--accent-light', s.accent.light2);
-    r.setProperty('--accent-dim', s.accent.dark1);
-    r.setProperty('--accent-rgb', s.accent.rgb);
-  }
+  applySystemTheme(s.accent);
 
   // Drop the rewrite step when there is no server to talk to. Keep it if the
   // user has already chosen a model, so the flow does not silently hide a
