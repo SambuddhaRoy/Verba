@@ -772,6 +772,9 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                         }
                     }
                 }
+                // Sized before showing: the treatment can change between
+                // dictations, and each one hugs at a different width.
+                let _ = overlay::fit(&overlay, &cfg.visual, cfg.tight_overlay_window);
                 let _ = overlay.show();
                 emit(&app, s);
             }
@@ -981,6 +984,10 @@ const UPDATE_IDLE_GRACE: Duration = Duration::from_secs(120);
 /// visuals can be checked on their own.
 fn overlay_demo(app: AppHandle, visual: &str) {
     let Some(win) = app.get_webview_window("overlay") else { return };
+    // The demo is how the overlay gets looked at without dictating, so the
+    // experimental fit has to apply here too or it cannot be evaluated.
+    let cfg_now = config::load();
+    let _ = overlay::fit(&win, visual, cfg_now.tight_overlay_window);
     let _ = win.show();
     log!("overlay demo ({visual}) — listening 10s, then transcript 6s");
 
