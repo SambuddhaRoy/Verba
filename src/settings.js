@@ -253,6 +253,7 @@ function render() {
   $('launch_at_startup').classList.toggle('on', cfg.launch_at_startup);
   $('preload_model').classList.toggle('on', cfg.preload_model);
   $('auto_update').classList.toggle('on', cfg.auto_update);
+  $('tight_overlay_window').classList.toggle('on', cfg.tight_overlay_window);
   $('language').value = cfg.language;
   $('microphone').value = cfg.microphone ?? '';
 
@@ -314,6 +315,7 @@ async function boot() {
   bindToggle('launch_at_startup', 'Startup preference saved');
   bindToggle('preload_model', 'Preload preference saved');
   bindToggle('auto_update', 'Update preference saved');
+  bindToggle('tight_overlay_window', 'Overlay effect workaround toggled');
   bindToggle('learn_from_corrections', 'Learning preference saved');
 
   $('fix-save').onclick = () => {

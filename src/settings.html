@@ -232,6 +232,22 @@
           <b>Minimal</b><small>A recorder waveform: loudness over time, scrolling under a playhead.</small>
         </button>
       </div>
+
+      <h2 class="sec">Troubleshooting</h2>
+      <div class="card row">
+        <div class="grow">
+          <b>Shrink the overlay window <span class="beta">EXPERIMENTAL</span></b>
+          <small>Turn this on if a translucent panel appears <em>around</em> the overlay.
+            Tools that restyle windows — Windhawk's translucent&#8209;windows mod is the
+            common one — paint the whole window rectangle, and Verba's is a large mostly
+            transparent canvas, so the effect shows as a box floating around the visible
+            panel. Shrinking the window to hug the panel cuts that band from roughly
+            ninety pixels a side to under ten. It cannot remove it entirely, and it
+            trims the glow treatment's outer aura. The dependable fix is to add
+            <code>Verba.exe</code> to that tool's own excluded&#8209;programs list.</small>
+        </div>
+        <button class="tgl" id="tight_overlay_window"></button>
+      </div>
     </div>
 
     <!-- About -->

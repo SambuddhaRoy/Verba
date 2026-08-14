@@ -556,6 +556,20 @@ h2.sec {
 }
 h2.sec:first-of-type { margin-top: 4px; }
 .hint { font: 400 11.5px/1.5 var(--sans); color: var(--text-3); margin: 0 0 10px; max-width: 60ch; }
+/* Marks a setting as a workaround rather than a feature, so nobody mistakes it
+   for something that is expected to be on. */
+.beta {
+  font: 600 8.5px var(--sans);
+  letter-spacing: .09em;
+  vertical-align: 2px;
+  margin-left: 5px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #E8A33D;
+  background: rgba(232, 163, 61, .12);
+  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, .25);
+}
+
 .mine {
   font: 400 9px var(--mono);
   letter-spacing: .06em;

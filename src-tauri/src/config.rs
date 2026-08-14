@@ -261,6 +261,12 @@ pub struct Config {
     pub model_idle_eject_secs: u64,
     /// Overlay treatment: "ribbons" or "glow".
     pub visual: String,
+    /// Experimental: ask Windows to strip any translucency a third-party tool
+    /// has applied to the overlay window. Off by default — it is a workaround
+    /// for someone else's software, it uses an undocumented API, and the
+    /// previous attempt at this problem made it worse for the person who
+    /// reported it.
+    pub tight_overlay_window: bool,
     /// None means physical cores - 2.
     pub threads: Option<i32>,
     pub use_gpu: bool,
@@ -305,6 +311,7 @@ impl Default for Config {
             // memory back.
             model_idle_eject_secs: 600,
             visual: "ribbons".into(),
+            tight_overlay_window: false,
             threads: None,
             use_gpu: true,
             hotkey: Hotkey::default(),

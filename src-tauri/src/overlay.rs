@@ -4,7 +4,7 @@
 //! is structural and comes from the extended window styles.
 
 use anyhow::Result;
-use tauri::{PhysicalPosition, WebviewWindow};
+use tauri::{LogicalSize, PhysicalPosition, WebviewWindow};
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -29,55 +29,52 @@ pub fn configure(win: &WebviewWindow) -> Result<()> {
             | WS_EX_TOOLWINDOW.0 as isize;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, wanted);
     }
-    disown_backdrop(hwnd);
     center_top(win)?;
     Ok(())
 }
 
-/// Tell DWM this window paints its own background and wants nothing added.
-///
-/// The overlay is a 760x420 transparent canvas with a much smaller box drawn
-/// inside it, so anything that gives the *window* a backdrop fills that whole
-/// rectangle — the user sees a large translucent panel floating around the
-/// transcript. That is what happens under Windhawk's translucent-windows mod,
-/// which applies acrylic to windows it matches.
-///
-/// Declaring DWMSBT_NONE and disabling non-client rendering is the documented
-/// way to say "do not decorate me", and it is correct regardless of who is
-/// asking. It is not a guarantee: a mod that sets the backdrop *after* us, or
-/// that calls the undocumented SetWindowCompositionAttribute directly, will
-/// still win — nothing inside this process can stop that. Excluding Verba in
-/// the mod's own window-match rules is the reliable fix on the user's side.
-fn disown_backdrop(hwnd: HWND) {
-    use windows::Win32::Graphics::Dwm::{
-        DwmSetWindowAttribute, DWMNCRP_DISABLED, DWMSBT_NONE, DWMWA_NCRENDERING_POLICY,
-        DWMWA_SYSTEMBACKDROP_TYPE,
-    };
+/// The window is a canvas much larger than the panel drawn inside it, which is
+/// what gives the treatments room to animate and the glow room for its aura.
+const ROOMY: (u32, u32) = (760, 420);
 
-    unsafe {
-        let backdrop = DWMSBT_NONE;
-        // Unsupported before Windows 11 22H2, where it returns E_INVALIDARG.
-        // Logged rather than surfaced: there is nothing the user could do, but
-        // when someone reports a stray panel around the overlay the first
-        // question is whether this even applied.
-        match DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_SYSTEMBACKDROP_TYPE,
-            &backdrop as *const _ as *const std::ffi::c_void,
-            std::mem::size_of_val(&backdrop) as u32,
-        ) {
-            Ok(()) => crate::log!("overlay: system backdrop disabled"),
-            Err(e) => crate::log!("overlay: backdrop opt-out unavailable ({e})"),
-        }
-
-        let policy = DWMNCRP_DISABLED;
-        let _ = DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_NCRENDERING_POLICY,
-            &policy as *const _ as *const std::ffi::c_void,
-            std::mem::size_of_val(&policy) as u32,
-        );
+/// A window that hugs each treatment's panel at full extent.
+///
+/// Widths come from what the frontend actually sets: 620 for the ribbons glass,
+/// 560 for the glow shell, 470 for the minimal card. The extra is breathing
+/// room for shadow and, in the glow's case, as much of the aura as can be kept
+/// without giving the margin back.
+fn tight(visual: &str) -> (u32, u32) {
+    match visual {
+        "minimal" => (500, 340),
+        // The aura is a wide blurred halo around a 560px box. Trimming much
+        // further clips it, so this treatment gains least from the workaround.
+        "glow" => (700, 400),
+        _ => (640, 380),
     }
+}
+
+/// Size the overlay window, then re-centre it.
+///
+/// `tight_fit` is the experimental workaround for tools that decorate windows —
+/// Windhawk's translucent-windows mod is the one that prompted it. Those tools
+/// paint the *window rectangle*, and because Verba's window is a large mostly
+/// transparent canvas, the decoration appears as a panel floating around the
+/// visible box.
+///
+/// Nothing inside this process stops that. Measured against the mod on a
+/// machine running it: declaring `DWMSBT_NONE` made it worse, an
+/// `ACCENT_DISABLED` composition attribute did nothing at show time or after,
+/// `WS_EX_LAYERED` did nothing, and a window region did not clip it. What does
+/// help is making the rectangle smaller, because the decoration tracks it — the
+/// surrounding band went from about 90 physical pixels a side to under ten.
+///
+/// It is a mitigation, not a cure. The dependable fix is to exclude Verba in
+/// the offending tool's own per-program rules, which the settings text says.
+pub fn fit(win: &WebviewWindow, visual: &str, tight_fit: bool) -> Result<()> {
+    let (w, h) = if tight_fit { tight(visual) } else { ROOMY };
+    win.set_size(LogicalSize::new(w, h))?;
+    center_top(win)?;
+    Ok(())
 }
 
 /// Top edge of the primary monitor, horizontally centred.

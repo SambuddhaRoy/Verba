@@ -208,6 +208,14 @@ Verba is early. It works and is used daily, but the version number is honest.
 - No dictation history yet.
 - Per-mode override hotkeys aren't implemented.
 - Windows 10 is untested; Linux and Android are not supported — the platform layer is Win32 throughout.
+- **Tools that restyle windows draw a panel around the overlay.** Windhawk's
+  translucent-windows mod is the common one: it paints the whole window rectangle, and
+  Verba's is a large mostly transparent canvas, so the effect frames the visible panel.
+  Nothing inside Verba's own process stops it — a DWM backdrop attribute, an
+  `ACCENT_DISABLED` composition attribute and a window region were all measured against
+  the mod and none worked. **Settings → Appearance → Shrink the overlay window** cuts the
+  band from about ninety pixels a side to under ten; adding `Verba.exe` to the tool's own
+  excluded-programs list removes it entirely.
 - The binary is unsigned.
 - **Recogniser bias is whisper-only.** Learned terms and pack vocabulary are fed to whisper via
   `initial_prompt`. sherpa-onnx has hotwords, but it encodes them against the model's own token
