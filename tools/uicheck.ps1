@@ -27,6 +27,22 @@ function Write-Utf8($path, $text) {
   [System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]::new($false))
 }
 
+# Chrome's helper processes inherit the redirected stdout handle and can still
+# hold it briefly after the parent exits, so a plain read races them.
+function Read-Utf8Shared($path) {
+  for ($i = 0; $i -lt 40; $i++) {
+    try {
+      $fs = [System.IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
+      try {
+        return (New-Object System.IO.StreamReader($fs, [System.Text.UTF8Encoding]::new($false))).ReadToEnd()
+      } finally { $fs.Dispose() }
+    } catch {
+      Start-Sleep -Milliseconds 50
+    }
+  }
+  return ''
+}
+
 # --- the state payload ------------------------------------------------------
 
 if (-not $State) {
@@ -36,7 +52,15 @@ if (-not $State) {
   # comes back mangled.
   $log = Join-Path $env:LOCALAPPDATA 'Verba\verba.log'
   Remove-Item $log -Force -ErrorAction SilentlyContinue
-  & $Exe --state | Out-Null
+  # Bounded, because an unattended runner will otherwise sit on a hung child
+  # until the job's own timeout. Start-Process rather than the call operator so
+  # there is a handle to wait on and kill.
+  $proc = Start-Process $Exe -ArgumentList '--state' -PassThru -WindowStyle Hidden
+  if (-not $proc.WaitForExit(60000)) {
+    try { $proc.Kill() } catch {}
+    Write-Error "$Exe --state did not exit within 60s"
+    exit 1
+  }
   if (-not (Test-Path $log)) { Write-Error "--state produced no log"; exit 1 }
   $text = Read-Utf8 $log
   $State = Join-Path $work 'state.json'
@@ -151,10 +175,23 @@ foreach ($p in $pages) {
   # on a server SKU ("LLM: Not supported on non Desktop SKU"). That aborted the
   # whole check on CI while passing locally, where Edge stays quiet. Stderr is
   # kept for diagnosis rather than discarded.
+  # Also bounded. Headless Chrome can sit forever on a runner if a page never
+  # settles, and a hung browser is indistinguishable from a slow one until the
+  # job times out an hour later.
   $prev = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
-  $dom = & $browser @browserArgs 2>$null | Out-String
+  $out = Join-Path $work "$($p.name).out"
+  $b = Start-Process $browser -ArgumentList $browserArgs -PassThru -NoNewWindow `
+       -RedirectStandardOutput $out -RedirectStandardError (Join-Path $work "$($p.name).err")
+  if (-not $b.WaitForExit(90000)) {
+    try { $b.Kill() } catch {}
+    Write-Host "FAIL $($p.name): the browser did not exit within 90s" -ForegroundColor Red
+    $ErrorActionPreference = $prev
+    $failed++
+    continue
+  }
   $ErrorActionPreference = $prev
+  $dom = if (Test-Path $out) { Read-Utf8Shared $out } else { '' }
   Write-Utf8 $dump $dom
 
   # Pull the block out by its container first. Splitting the whole dump on
