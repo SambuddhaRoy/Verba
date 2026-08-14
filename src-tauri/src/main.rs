@@ -22,6 +22,7 @@ mod hardware;
 mod hotkey;
 mod inject;
 mod llm;
+mod net;
 mod ollama;
 mod overlay;
 mod pipeline;
@@ -265,6 +266,17 @@ fn learned_corrections() -> Vec<learn::Learned> {
 #[tauri::command]
 fn clear_corrections() -> Result<(), String> {
     learn::clear()
+}
+
+/// Every outbound request Verba has made this session, newest first.
+#[tauri::command]
+fn network_log() -> Vec<net::Entry> {
+    net::entries()
+}
+
+#[tauri::command]
+fn clear_network_log() {
+    net::clear();
 }
 
 /// Every pack, built-in and user-authored, for the packs panel.
@@ -1402,7 +1414,9 @@ fn main() -> Result<()> {
             learned_corrections,
             clear_corrections,
             list_packs,
-            install_python
+            install_python,
+            network_log,
+            clear_network_log
         ])
         .setup(move |app| {
             let overlay_win = app

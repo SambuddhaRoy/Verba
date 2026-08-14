@@ -122,7 +122,7 @@ struct Asset {
 /// never reaches anyone automatically.
 pub fn check() -> Result<Option<Available>, String> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let rel: Release = ureq::get(&url)
+    let rel: Release = crate::net::get(&url, "check GitHub for a new version")
         .header("User-Agent", UA)
         .header("Accept", "application/vnd.github+json")
         .config()
@@ -198,7 +198,7 @@ pub fn stage<F: FnMut(u64, u64)>(avail: &Available, mut on_progress: F) -> Resul
 
     let part = staged.with_extension("new.part");
     let result = (|| -> Result<(), String> {
-        let resp = ureq::get(&avail.url)
+        let resp = crate::net::get(&avail.url, "download the Verba update")
             .header("User-Agent", UA)
             .call()
             .map_err(|e| format!("download failed: {e}"))?;

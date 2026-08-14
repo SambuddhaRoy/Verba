@@ -42,7 +42,7 @@ pub fn fetch_with<F: FnMut(u64, u64)>(
     let part = dir.join(format!("{file}.part"));
 
     let result = (|| -> Result<(), String> {
-        let resp = ureq::get(url).call().map_err(|e| e.to_string())?;
+        let resp = crate::net::get(url, "download a speech model").call().map_err(|e| e.to_string())?;
 
         let total: u64 = resp
             .headers()

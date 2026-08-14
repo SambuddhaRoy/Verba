@@ -85,6 +85,8 @@ window.__TAURI__ = {
         { id:'medical', name:'Medical', description:'d', terms:['a'], hints:[], transforms:[], user:false },
         { id:'legal', name:'Legal', description:'d', terms:['a'], hints:[], transforms:[], user:false },
       ];
+      if (cmd === 'network_log') return window.__net || [];
+      if (cmd === 'clear_network_log') { window.__net = []; return null; }
       if (cmd === 'learned_corrections') return [];
       if (cmd === 'last_dictation') return null;
       if (cmd === 'check_update') return null;
@@ -144,7 +146,15 @@ foreach ($p in $pages) {
     '--virtual-time-budget=15000', '--window-size=1100,760',
     '--dump-dom', ('file:///' + ($p.path -replace '\\', '/'))
   )
+  # Windows PowerShell turns a native program's stderr into a terminating error
+  # under ErrorActionPreference='Stop', and headless Edge writes chatter there
+  # on a server SKU ("LLM: Not supported on non Desktop SKU"). That aborted the
+  # whole check on CI while passing locally, where Edge stays quiet. Stderr is
+  # kept for diagnosis rather than discarded.
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
   $dom = & $browser @browserArgs 2>$null | Out-String
+  $ErrorActionPreference = $prev
   Write-Utf8 $dump $dom
 
   # Pull the block out by its container first. Splitting the whole dump on
