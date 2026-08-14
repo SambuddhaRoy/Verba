@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  # So a broken main can be re-checked without an empty commit.
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: cargo test
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # whisper.cpp is compiled from source, so a cold run is minutes. The
+      # cache is keyed on the lockfile and the workflow itself.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: cpu-only
+
+      # whisper-rs-sys generates its FFI bindings with bindgen, which needs
+      # libclang. src-tauri/.cargo/config.toml points LIBCLANG_PATH at
+      # .tools/ with a repo-relative path, and that directory is gitignored
+      # because the DLL is 80MB — so CI has to fill it in.
+      #
+      # The runner image ships LLVM; the pip wheel is the documented fallback
+      # and is the same route the README gives a human setting this up.
+      - name: Provide libclang
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force src-tauri/.tools | Out-Null
+          $llvm = "$env:ProgramFiles\LLVM\bin\libclang.dll"
+          if (Test-Path $llvm) {
+            Copy-Item $llvm src-tauri/.tools/
+            Write-Host "libclang from the runner's LLVM"
+          } else {
+            python -m pip install --disable-pip-version-check libclang
+            $dll = python -c "import clang, os; print(os.path.join(os.path.dirname(clang.__file__), 'native', 'libclang.dll'))"
+            Copy-Item $dll src-tauri/.tools/
+            Write-Host "libclang from the pip wheel"
+          }
+          Get-Item src-tauri/.tools/libclang.dll | Select-Object Name, Length
+
+      # Run from inside src-tauri on purpose: cargo discovers .cargo/config.toml
+      # from the working directory, not from --manifest-path, so building from
+      # the repo root would leave LIBCLANG_PATH unset and fail in bindgen.
+      #
+      # --no-default-features drops the gpu-vulkan feature. The runners have no
+      # Vulkan SDK, and none of the tests depend on the GPU backend — the
+      # hardware tests construct their own Hardware values.
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --no-default-features --locked
+
+      # A release build is what users actually get, and it fails in ways a test
+      # build does not — different codegen, and the Tauri context is generated
+      # for real. Cheap once the cache is warm.
+      - name: cargo build --release
+        working-directory: src-tauri
+        run: cargo build --release --no-default-features --locked
