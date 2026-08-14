@@ -6,7 +6,7 @@
 
 Everything runs on your machine. No account, no cloud, no per-minute cost.
 
-[![Download](https://img.shields.io/github/v/release/SambuddhaRoy/Verba?label=download&style=for-the-badge)](https://github.com/SambuddhaRoy/Verba/releases/latest) [![Licence](https://img.shields.io/badge/licence-GPL--3.0-blue?style=for-the-badge)](LICENSE) [![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](#requirements)
+[![Download](https://img.shields.io/github/v/release/SambuddhaRoy/Verba?label=download&style=for-the-badge)](https://github.com/SambuddhaRoy/Verba/releases/latest) [![Licence](https://img.shields.io/badge/licence-GPL--3.0-blue?style=for-the-badge)](LICENSE) [![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](#requirements) [![CI](https://img.shields.io/github/actions/workflow/status/SambuddhaRoy/Verba/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/SambuddhaRoy/Verba/actions/workflows/ci.yml)
 
 <img src="docs/hero.svg" alt="Hold Ctrl+Shift+Space, speak, and the transcribed text is inserted where your caret is." width="880">
 
