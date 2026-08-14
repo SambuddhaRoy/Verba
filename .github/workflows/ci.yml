@@ -15,6 +15,10 @@ jobs:
   test:
     name: cargo test
     runs-on: windows-latest
+    # A cold cache compiles whisper.cpp, which is minutes. This is a backstop
+    # against a hang, not a target — the UI step once sat for ten minutes on a
+    # child that never exited, and the default is six hours.
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
