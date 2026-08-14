@@ -275,6 +275,28 @@
         <button class="tgl" id="auto_update"></button>
       </div>
 
+      <h2 class="sec">Network activity</h2>
+      <p class="hint">Every connection Verba itself opens, as it happens. Dictate, format and
+        insert without touching this list — a fully local session adds nothing to it.</p>
+
+      <div class="card net" id="net-card">
+        <div class="row">
+          <div class="grow">
+            <b><span id="net-count">No outbound requests</span></b>
+            <small id="net-note">Speech never leaves the machine. Model downloads, update
+              checks and Ollama calls appear here when they happen.</small>
+          </div>
+          <button class="btn" id="net-clear">Clear</button>
+        </div>
+        <div id="net-list"></div>
+      </div>
+
+      <p class="hint">Verba cannot see inside its own child processes. The faster&#8209;whisper
+        and Parakeet engines are Python, so when they install dependencies or fetch their
+        weights those connections belong to <code>pip</code> and
+        <code>huggingface_hub</code>, not to this list. Everything Verba does itself is
+        here, guaranteed by a test that fails the build if any request bypasses the log.</p>
+
       <div class="card"><div class="grow"><b>Log file</b><small class="mono" id="logpath">…</small></div></div>
       <div class="card"><div class="grow"><b>Config</b><small class="mono" id="cfgpath">…</small></div></div>
     </div>

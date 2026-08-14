@@ -61,6 +61,39 @@ CHECKS.settings = async (t, s) => {
   await t.settle();
   t.is('packs listed', document.querySelectorAll('#pack-list .card').length > 0,
        `${document.querySelectorAll('#pack-list .card').length}`);
+
+  // The network panel is the thing that makes the local-first claim checkable,
+  // so an empty log has to read as reassurance rather than as a broken widget.
+  window.__net = [];
+  buildNetwork();
+  await t.settle();
+  t.is('an empty log says so',
+       /No outbound requests/.test(document.getElementById('net-count').textContent),
+       document.getElementById('net-count').textContent);
+  t.is('an empty log lists nothing',
+       document.querySelectorAll('#net-list .net-row').length === 0);
+
+  // Loopback must be marked, not hidden: a call to a local Ollama is not the
+  // app phoning home, and showing them identically would be alarming or
+  // dishonest depending on which way it erred.
+  window.__net = [
+    { at: 1770000000, method: 'GET', host: 'api.github.com',
+      url: 'https://api.github.com/x', purpose: 'check for a new version', local: false },
+    { at: 1770000001, method: 'POST', host: '127.0.0.1:11434',
+      url: 'http://127.0.0.1:11434/api/generate', purpose: 'rewrite', local: true },
+  ];
+  buildNetwork();
+  await t.settle();
+  const rows = [...document.querySelectorAll('#net-list .net-row')];
+  t.is('requests are listed', rows.length === 2, `${rows.length}`);
+  t.is('loopback is distinguished from off-machine',
+       rows.filter(r => r.classList.contains('local')).length === 1,
+       `${rows.filter(r => r.classList.contains('local')).length} marked local`);
+  t.is('the count names how many left the machine',
+       /1 off this machine/.test(document.getElementById('net-count').textContent),
+       document.getElementById('net-count').textContent);
+  t.is('a destination is shown',
+       rows.some(r => r.querySelector('.h').textContent === 'api.github.com'));
 };
 
 /* ------------------------------------------------------------ onboarding */

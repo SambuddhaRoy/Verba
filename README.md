@@ -35,7 +35,7 @@ Then hold **`Ctrl` + `Shift` + `Space`**, say something, and let go.
 
 |  | |
 |---|---|
-| 🔒 **Genuinely local** | Your voice never leaves the machine. Nothing to sign up for, nothing metered. |
+| 🔒 **Genuinely local — and checkable** | Your voice never leaves the machine. **Settings → About** logs every connection Verba opens, live; a session of dictating adds nothing to it. |
 | 🎯 **Knows where you're typing** | Reads the focused window and formats to match — an email in Outlook, bullets in Obsidian, a comment in your editor. |
 | 🧠 **Learns your words** | Correct a transcript once or twice and Verba stops getting that word wrong. No vocabulary list to maintain. |
 | 📚 **Domain packs** | Code, Medical and Legal vocabularies you can switch on together. "open paren" becomes `(`, "bee pee" becomes `BP`. |
@@ -95,6 +95,23 @@ open the Microsoft Store — so typing `python` in a terminal appears to work ev
 installed. Verba ignores those and finds a real interpreter. `--python` reports what it found.
 
 </details>
+
+---
+
+## Verifying the local-first claim
+
+Saying dictation is local is cheap. **Settings → About → Network activity** lists every
+connection Verba opens, with its destination, the time, and why — updating as it happens.
+Dictate, format and insert, and the list stays empty. Loopback is marked rather than
+hidden, so a call to a local Ollama reads as what it is.
+
+What makes the list worth trusting is not discipline: every request goes through one
+module, and a test walks the source and fails the build if any call bypasses it. Try it —
+route a request around the log and `cargo test` names the file and line.
+
+It cannot see inside child processes. The faster-whisper and Parakeet engines are Python,
+so when they install dependencies or fetch weights those connections belong to `pip` and
+`huggingface_hub`. The panel says so rather than implying a completeness it doesn't have.
 
 ---
 

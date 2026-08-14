@@ -88,7 +88,7 @@ pub fn rewrite(cfg: &Config, instructions: &str, text: &str) -> Result<String> {
     });
 
     let t0 = Instant::now();
-    let sent = ureq::post(&url)
+    let sent = crate::net::post(&url, "rewrite a dictation with the local LLM")
         .config()
         .timeout_global(Some(TIMEOUT))
         .build()
@@ -148,7 +148,7 @@ pub fn installed_models(cfg: &Config) -> Vec<String> {
     }
 
     let url = format!("{}/api/tags", cfg.llm_url.trim_end_matches('/'));
-    let Ok(mut resp) = ureq::get(&url)
+    let Ok(mut resp) = crate::net::get(&url, "list local Ollama models")
         .config()
         .timeout_global(Some(Duration::from_secs(3)))
         .build()

@@ -53,7 +53,7 @@ pub fn exe() -> Option<PathBuf> {
 }
 
 pub fn is_running(cfg: &Config) -> bool {
-    ureq::get(format!("{}/api/tags", cfg.llm_url.trim_end_matches('/')))
+    crate::net::get(&format!("{}/api/tags", cfg.llm_url.trim_end_matches('/')), "check whether Ollama is running")
         .config()
         .timeout_global(Some(Duration::from_millis(1200)))
         .build()
@@ -127,7 +127,7 @@ pub fn ensure_running(cfg: &Config) -> Result<()> {
 /// generous budget here is affordable precisely because nobody is waiting.
 pub fn preload(cfg: &Config) -> Result<()> {
     ensure_running(cfg)?;
-    ureq::post(format!("{}/api/generate", cfg.llm_url.trim_end_matches('/')))
+    crate::net::post(&format!("{}/api/generate", cfg.llm_url.trim_end_matches('/')), "warm up the rewrite model")
         .config()
         .timeout_global(Some(Duration::from_secs(300)))
         .build()
@@ -262,7 +262,7 @@ pub fn catalogue(cfg: &Config, hw: &crate::hardware::Hardware) -> Vec<LlmModel> 
 pub fn pull<F: FnMut(&str, u64, u64)>(cfg: &Config, model: &str, mut on: F) -> Result<()> {
     ensure_running(cfg)?;
 
-    let resp = ureq::post(format!("{}/api/pull", cfg.llm_url.trim_end_matches('/')))
+    let resp = crate::net::post(&format!("{}/api/pull", cfg.llm_url.trim_end_matches('/')), "download an Ollama model")
         .config()
         // A large pull legitimately runs for many minutes; the per-line reads
         // below are what would stall if the server died.

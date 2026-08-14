@@ -465,10 +465,62 @@ async function boot() {
   $('about-sub').textContent = `Verba ${s.version} — local-first speech to text.`;
   buildUpdates(s);
   buildPython(s);
+  buildNetwork();
   buildPacks();
   buildLearning();
 
   render();
+}
+
+/* --- network activity ------------------------------------------------------ */
+
+/** Poll handle, so opening the panel twice does not stack timers. */
+let netTimer = null;
+
+/**
+ * The local-first claim, made checkable.
+ *
+ * Loopback is marked rather than hidden: a call to a local Ollama is not the
+ * app phoning home, and collapsing the two would make the list either alarming
+ * or dishonest depending on which way it erred.
+ */
+function buildNetwork() {
+  const render = list => {
+    const host = $('net-list');
+    host.innerHTML = '';
+    const remote = list.filter(e => !e.local).length;
+
+    $('net-count').textContent = list.length === 0
+      ? 'No outbound requests'
+      : `${list.length} request${list.length === 1 ? '' : 's'}` +
+        (remote === 0 ? ' — all to this machine' : `, ${remote} off this machine`);
+
+    list.slice(0, 60).forEach(e => {
+      const row = document.createElement('div');
+      row.className = 'net-row' + (e.local ? ' local' : '');
+      const when = new Date(e.at * 1000).toLocaleTimeString();
+      row.innerHTML =
+        `<span class="t">${when}</span>` +
+        `<span class="m">${e.method}</span>` +
+        `<span class="h">${e.host}</span>` +
+        `<span class="w">${e.local ? 'this machine' : e.purpose}</span>`;
+      row.title = e.url;
+      host.appendChild(row);
+    });
+  };
+
+  const refresh = () => invoke('network_log').then(render).catch(() => {});
+  refresh();
+
+  // Polled rather than pushed: an event per request would mean the network
+  // panel itself generating IPC traffic while the user watches for traffic.
+  clearInterval(netTimer);
+  netTimer = setInterval(() => {
+    if (document.getElementById('p-about')?.classList.contains('on')) refresh();
+  }, 1000);
+
+  $('net-clear').onclick = () =>
+    invoke('clear_network_log').then(refresh).catch(e => toast(`${e}`));
 }
 
 /* --- python --------------------------------------------------------------- */
