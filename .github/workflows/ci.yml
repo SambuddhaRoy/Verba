@@ -68,3 +68,11 @@ jobs:
       - name: cargo build --release
         working-directory: src-tauri
         run: cargo build --release --no-default-features --locked
+
+      # A third of the codebase is frontend, and until this existed it had one
+      # self-check. Renders the three windows in headless Edge against a real
+      # --state payload from the binary just built, so the assertions run
+      # against the shape the backend actually emits.
+      - name: UI checks
+        shell: pwsh
+        run: powershell -NoProfile -File tools/uicheck.ps1 -Exe src-tauri/target/release/verba.exe
