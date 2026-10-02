@@ -183,12 +183,13 @@ foreach ($p in $pages) {
   $out = Join-Path $work "$($p.name).out"
   $b = Start-Process $browser -ArgumentList $browserArgs -PassThru -NoNewWindow `
        -RedirectStandardOutput $out -RedirectStandardError (Join-Path $work "$($p.name).err")
+  # A timeout is not a verdict. Headless Chrome sometimes hangs on exit after
+  # it has already dumped the DOM (the overlay once did on CI while taking
+  # 3.6s the run before), so kill the whole tree and let the DONE marker below
+  # decide. /T because the helpers hold the stdout file open.
   if (-not $b.WaitForExit(90000)) {
-    try { $b.Kill() } catch {}
-    Write-Host "FAIL $($p.name): the browser did not exit within 90s" -ForegroundColor Red
-    $ErrorActionPreference = $prev
-    $failed++
-    continue
+    Write-Host "  $($p.name): browser still running after 90s, killed" -ForegroundColor Yellow
+    taskkill /T /F /PID $b.Id 2>&1 | Out-Null
   }
   $ErrorActionPreference = $prev
   $dom = if (Test-Path $out) { Read-Utf8Shared $out } else { '' }
