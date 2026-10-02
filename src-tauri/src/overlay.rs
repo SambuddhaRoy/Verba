@@ -37,21 +37,9 @@ pub fn configure(win: &WebviewWindow) -> Result<()> {
 /// what gives the treatments room to animate and the glow room for its aura.
 const ROOMY: (u32, u32) = (760, 420);
 
-/// A window that hugs each treatment's panel at full extent.
-///
-/// Widths come from what the frontend actually sets: 620 for the ribbons glass,
-/// 560 for the glow shell, 470 for the minimal card. The extra is breathing
-/// room for shadow and, in the glow's case, as much of the aura as can be kept
-/// without giving the margin back.
-fn tight(visual: &str) -> (u32, u32) {
-    match visual {
-        "minimal" => (500, 340),
-        // The aura is a wide blurred halo around a 560px box. Trimming much
-        // further clips it, so this treatment gains least from the workaround.
-        "glow" => (700, 400),
-        _ => (640, 380),
-    }
-}
+/// A window that hugs the orb's panel at full extent: 560 wide, plus room for
+/// the shadow and the glow it casts. The text box caps its height.
+const TIGHT: (u32, u32) = (620, 300);
 
 /// Size the overlay window, then re-centre it.
 ///
@@ -70,8 +58,8 @@ fn tight(visual: &str) -> (u32, u32) {
 ///
 /// It is a mitigation, not a cure. The dependable fix is to exclude Verba in
 /// the offending tool's own per-program rules, which the settings text says.
-pub fn fit(win: &WebviewWindow, visual: &str, tight_fit: bool) -> Result<()> {
-    let (w, h) = if tight_fit { tight(visual) } else { ROOMY };
+pub fn fit(win: &WebviewWindow, tight_fit: bool) -> Result<()> {
+    let (w, h) = if tight_fit { TIGHT } else { ROOMY };
     win.set_size(LogicalSize::new(w, h))?;
     center_top(win)?;
     Ok(())

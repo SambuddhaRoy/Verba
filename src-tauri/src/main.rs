@@ -21,6 +21,7 @@ mod focus;
 mod hardware;
 mod hotkey;
 mod inject;
+mod live;
 mod llm;
 mod net;
 mod ollama;
@@ -72,8 +73,6 @@ struct State {
     text: Option<String>,
     /// True while `text` is an interim guess that will be replaced.
     partial: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    visual: Option<String>,
     /// Shown in the overlay's meta row. Sent on state changes, not every tick.
     #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<String>,
@@ -107,7 +106,6 @@ impl State {
             bands: [0.0; audio::BANDS],
             text: None,
             partial: false,
-            visual: None,
             model: None,
             mode: None,
             gpu: cfg!(feature = "gpu-vulkan"),
@@ -339,7 +337,7 @@ fn apply_update(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_config(app: AppHandle, cfg: config::Config) -> Result<(), String> {
+fn set_config(cfg: config::Config) -> Result<(), String> {
     let previous = config::load();
     config::save(&cfg).map_err(|e| e.to_string())?;
 
@@ -351,14 +349,6 @@ fn set_config(app: AppHandle, cfg: config::Config) -> Result<(), String> {
     if cfg.hotkey != previous.hotkey {
         hotkey::set_binding(cfg.hotkey.vk, cfg.hotkey.mods());
         log!("hotkey rebound to {}", hotkey_label(&cfg.hotkey));
-    }
-    // Push the overlay treatment through immediately — it is the one setting
-    // with an instant visible effect, so waiting for the next dictation to
-    // apply it would read as the control being broken.
-    if cfg.visual != previous.visual {
-        let mut s = State::new("idle", "");
-        s.visual = Some(cfg.visual.clone());
-        emit(&app, s);
     }
     Ok(())
 }
@@ -681,12 +671,49 @@ fn show_settings(app: &AppHandle) {
 
 // --- engine ---------------------------------------------------------------
 
+/// Load the rewrite model off the critical path. Ollama loads weights on first
+/// request, not at startup, so an unwarmed dictation waits through the load and
+/// times out into the fallback. Cheap when the model is already resident.
+fn warm_llm(cfg: &config::Config) {
+    if cfg.llm_model.trim().is_empty() {
+        return;
+    }
+    let warm = cfg.clone();
+    std::thread::Builder::new()
+        .name("llm-warm".into())
+        .spawn(move || match ollama::preload(&warm) {
+            Ok(()) => log!("rewrite model {} warm", warm.llm_model),
+            // Not an error worth surfacing: post-processing degrades to the
+            // cleaned transcript, which is a usable outcome on its own.
+            Err(e) => log!("rewrite model not warmed: {e}"),
+        })
+        .ok();
+}
+
+/// Reopen the microphone if its stream has died.
+///
+/// A USB or Bluetooth mic that sleeps, a driver reset or an audio service
+/// restart ends the stream without any signal the engine would see. The ring
+/// just stops growing, so every dictation reads as empty while the overlay
+/// opens as normal: the app looks fine and does nothing. Bluetooth headsets
+/// sleep after a spell of silence, which fits "dead after a long idle".
+fn revive_recorder(recorder: &mut audio::Recorder) {
+    if recorder.healthy() {
+        return;
+    }
+    log!("microphone stream is not delivering audio, reopening it");
+    match audio::Recorder::new(config::load().microphone.as_deref()) {
+        Ok(fresh) => *recorder = fresh,
+        Err(e) => log!("could not reopen the microphone: {e}"),
+    }
+}
+
 fn engine_loop(app: AppHandle) -> Result<()> {
     // Refreshed once per dictation rather than per tick. Re-reading it in the
     // idle branch meant a file open, read and full JSON parse thirty times a
     // second for as long as the app was running.
     let mut cfg = config::load();
-    let recorder = audio::Recorder::new(cfg.microphone.as_deref())?;
+    let mut recorder = audio::Recorder::new(cfg.microphone.as_deref())?;
     hotkey::set_binding(cfg.hotkey.vk, cfg.hotkey.mods());
     let events = hotkey::spawn()?;
     let worker = transcribe::spawn()?;
@@ -696,7 +723,6 @@ fn engine_loop(app: AppHandle) -> Result<()> {
         .ok_or_else(|| anyhow!("overlay window missing"))?;
 
     let mut boot = State::new("idle", "");
-    boot.visual = Some(cfg.visual.clone());
     boot.model = Some(cfg.model.clone());
     boot.accent = Some(accent::detect());
     emit(&app, boot);
@@ -711,20 +737,8 @@ fn engine_loop(app: AppHandle) -> Result<()> {
         });
     }
 
-    // Warm the rewrite model off the critical path. Ollama loads weights on
-    // first request, not at startup, so without this the first dictation after
-    // a cold start waits through the load and times out into the fallback.
-    if !cfg.llm_model.trim().is_empty() && cfg.modes.iter().any(|m| m.llm) {
-        let warm = cfg.clone();
-        std::thread::Builder::new()
-            .name("llm-warm".into())
-            .spawn(move || match ollama::preload(&warm) {
-                Ok(()) => log!("rewrite model {} warm", warm.llm_model),
-                // Not an error worth surfacing: post-processing degrades to the
-                // cleaned transcript, which is a usable outcome on its own.
-                Err(e) => log!("rewrite model not warmed: {e}"),
-            })
-            .ok();
+    if cfg.modes.iter().any(|m| m.llm) {
+        warm_llm(&cfg);
     }
 
     log!("ready — hold {} to dictate", hotkey_label(&cfg.hotkey));
@@ -741,11 +755,14 @@ fn engine_loop(app: AppHandle) -> Result<()> {
     let mut hide_at: Option<Instant> = None;
     let mut unloaded = false;
     let mut target = focus::App::default();
+    let mut live: Option<live::Live> = None;
+    let mut last_health = Instant::now();
 
     loop {
         match events.recv_timeout(TICK) {
             Ok(hotkey::Event::Pressed) => {
                 utterance += 1;
+                revive_recorder(&mut recorder);
                 mark = recorder.mark();
                 started = Instant::now();
                 last_partial = Instant::now();
@@ -755,6 +772,17 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 last_used = Instant::now();
                 listening = true;
                 hide_at = None;
+                if unloaded {
+                    // Ejected for idleness. Start bringing the model back now
+                    // instead of when the first interim pass falls due, over a
+                    // second into the dictation. Utterance 0 is never current,
+                    // so the result is dropped; the load is the point.
+                    let _ = worker.jobs.send(transcribe::Job::Transcribe {
+                        pcm: vec![0.0; audio::TARGET_RATE as usize],
+                        utterance: 0,
+                        final_pass: false,
+                    });
+                }
                 unloaded = false;
                 cfg = config::load();
 
@@ -763,30 +791,42 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                 // formatting mode applies.
                 target = focus::foreground();
                 let mode = cfg.mode_for(&target.exe, &target.title);
-                log!("● listening   [{}] {} → {}", target.exe, target.title, mode.name);
+                // Not in Verba's own windows: the onboarding try-out dictates
+                // there on purpose and needs the overlay to show the text.
+                live = (cfg.live_typing && !is_own_window(&target.exe))
+                    .then(|| live::Live::new(target.hwnd));
+                log!(
+                    "● listening   [{}] {} → {}{}",
+                    target.exe,
+                    target.title,
+                    mode.name,
+                    if live.is_some() { " (live typing)" } else { "" }
+                );
+                // The startup warm-up expires after KEEP_ALIVE of quiet, and a
+                // cold load (4-8s measured) outruns the rewrite timeout. Started
+                // here, the load runs while the user is still speaking. Live
+                // typing never calls the model, so it has nothing to warm.
+                if mode.llm && live.is_none() {
+                    warm_llm(&cfg);
+                }
 
                 let mut s = State::new("listening", "LISTENING");
                 s.model = Some(cfg.model.clone());
-                // Only the ribbons panel paints a backdrop; for the other
-                // treatments the capture, the base64 and the 26KB of IPC would
-                // all be discarded.
-                if cfg.visual == "ribbons" {
-                    // Capture before showing, so the shot does not contain the
-                    // overlay itself — otherwise the panel blurs a picture of
-                    // its own previous frame.
-                    if let Ok(h) = overlay.hwnd() {
-                        if let Some(shot) = capture::behind(HWND(h.0 as _)) {
-                            s.backdrop = Some(Backdrop {
-                                width: shot.width,
-                                height: shot.height,
-                                rgba: capture::base64(&shot.rgba),
-                            });
-                        }
+                // Captured before showing, so the shot does not contain the
+                // overlay itself, or the glass would blur a picture of its own
+                // previous frame.
+                if let Ok(h) = overlay.hwnd() {
+                    if let Some(shot) = capture::behind(HWND(h.0 as _)) {
+                        s.backdrop = Some(Backdrop {
+                            width: shot.width,
+                            height: shot.height,
+                            rgba: capture::base64(&shot.rgba),
+                        });
                     }
                 }
-                // Sized before showing: the treatment can change between
-                // dictations, and each one hugs at a different width.
-                let _ = overlay::fit(&overlay, &cfg.visual, cfg.tight_overlay_window);
+                // Sized before showing: the tight-window setting can change
+                // between dictations.
+                let _ = overlay::fit(&overlay, cfg.tight_overlay_window);
                 let _ = overlay.show();
                 emit(&app, s);
             }
@@ -801,13 +841,22 @@ fn engine_loop(app: AppHandle) -> Result<()> {
 
                 if held.as_millis() < MIN_SPEECH_MS || raw.is_empty() {
                     log!("  too short, ignored");
+                    live = None;
                     emit(&app, State::new("idle", ""));
                     let _ = overlay.hide();
                     continue;
                 }
 
                 emit(&app, State::new("transcribing", "TRANSCRIBING"));
-                let pcm = audio::to_16k(&raw, recorder.sample_rate())?;
+                // Not `?`: an error here used to end the engine thread for good,
+                // leaving a tray icon that looks alive and a dead hotkey.
+                let Ok(pcm) = audio::to_16k(&raw, recorder.sample_rate()) else {
+                    log!("  could not resample the recording, ignored");
+                    emit(&app, State::new("idle", ""));
+                    let _ = overlay.hide();
+                    live = None;
+                    continue;
+                };
                 last_used = Instant::now();
                 let _ = worker.jobs.send(transcribe::Job::Transcribe {
                     pcm,
@@ -864,6 +913,23 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                         continue;
                     }
                     last_used = Instant::now();
+
+                    // Live typing: most of the text is already in the document.
+                    // The whole-recording pass types what is missing and
+                    // corrects what the interim passes got wrong.
+                    if let Some(mut l) = live.take() {
+                        l.finish(&text, &cfg, cfg.mode_for(&target.exe, &target.title));
+                        log!("  {text}");
+                        log!("  live: {} chars typed, final pass {}ms", l.typed().chars().count(), took.as_millis());
+                        if !l.typed().is_empty() {
+                            *LAST_DICTATION.lock().unwrap_or_else(|e| e.into_inner()) =
+                                Some(l.typed().to_string());
+                        }
+                        emit(&app, State::new("transcribing", "INSERTED"));
+                        hide_at = Some(Instant::now() + LIVE_LINGER);
+                        continue;
+                    }
+
                     if text.is_empty() {
                         log!("  (silence)");
                         emit(&app, State::new("idle", ""));
@@ -929,6 +995,7 @@ fn engine_loop(app: AppHandle) -> Result<()> {
                     // interim pass while the user is still speaking, must not
                     // tear the overlay down mid-sentence.
                     if g == utterance && !listening {
+                        live = None;
                         emit(&app, State::new("idle", ""));
                         let _ = overlay.hide();
                     }
@@ -936,13 +1003,26 @@ fn engine_loop(app: AppHandle) -> Result<()> {
             }
         }
 
+        // While idle, make sure the microphone is still delivering. Cheap, and
+        // it means the stream is already back by the time the key goes down.
+        if !listening && last_health.elapsed() >= Duration::from_secs(5) {
+            last_health = Instant::now();
+            revive_recorder(&mut recorder);
+        }
+
         if listening {
             let mut s = State::new("listening", "LISTENING");
             s.bands = recorder.bands();
             s.elapsed = started.elapsed().as_secs_f32();
             if let Some(text) = interim {
-                s.text = Some(text);
-                s.partial = true;
+                match live.as_mut() {
+                    // Typed into the document instead of shown in the overlay.
+                    Some(l) => l.on_partial(&text, &cfg, cfg.mode_for(&target.exe, &target.title)),
+                    None => {
+                        s.text = Some(text);
+                        s.partial = true;
+                    }
+                }
             }
             emit(&app, s);
         } else if hide_at.is_some_and(|t| Instant::now() >= t) {
@@ -988,23 +1068,34 @@ fn engine_loop(app: AppHandle) -> Result<()> {
     Ok(())
 }
 
+/// How long the overlay stays after a live-typed dictation. The text is
+/// already in the document, so there is nothing to read back.
+const LIVE_LINGER: Duration = Duration::from_millis(700);
+
 /// How long the machine must be free of dictation before an update restarts
 /// the app underneath the user.
 const UPDATE_IDLE_GRACE: Duration = Duration::from_secs(120);
 
 /// Drive the overlay through its states with no microphone and no model, so the
 /// visuals can be checked on their own.
-fn overlay_demo(app: AppHandle, visual: &str) {
+fn overlay_demo(app: AppHandle) {
     let Some(win) = app.get_webview_window("overlay") else { return };
     // The demo is how the overlay gets looked at without dictating, so the
     // experimental fit has to apply here too or it cannot be evaluated.
     let cfg_now = config::load();
-    let _ = overlay::fit(&win, visual, cfg_now.tight_overlay_window);
+    let _ = overlay::fit(&win, cfg_now.tight_overlay_window);
+    // Captured before showing, as a real dictation does, or the glass has
+    // nothing to show through it and the demo misrepresents it.
+    let backdrop = win.hwnd().ok().and_then(|h| capture::behind(HWND(h.0 as _)));
     let _ = win.show();
-    log!("overlay demo ({visual}) — listening 10s, then transcript 6s");
+    log!("overlay demo: listening 10s, then transcript 6s");
 
     let mut s = State::new("idle", "");
-    s.visual = Some(visual.to_string());
+    s.backdrop = backdrop.map(|shot| Backdrop {
+        width: shot.width,
+        height: shot.height,
+        rgba: capture::base64(&shot.rgba),
+    });
     s.model = Some(config::load().model);
     s.accent = Some(accent::detect());
     emit(&app, s);
@@ -1039,6 +1130,10 @@ fn overlay_demo(app: AppHandle, visual: &str) {
         std::thread::sleep(TICK);
     }
 
+    // The formatting pass, so its label can be looked at too.
+    emit(&app, State::new("transcribing", "FORMATTING"));
+    std::thread::sleep(Duration::from_millis(1500));
+
     let mut done = State::new("transcribing", "INSERTED");
     done.text = Some(
         "Thanks for sending the deck over — I read the pricing section this \
@@ -1055,6 +1150,13 @@ fn overlay_demo(app: AppHandle, visual: &str) {
 
 fn main() -> Result<()> {
     log::init();
+    // A panic on the engine or worker thread used to end that thread with no
+    // trace, leaving a tray icon that looks alive and a hotkey that does
+    // nothing. Now it at least says where.
+    std::panic::set_hook(Box::new(|info| {
+        let thread = std::thread::current();
+        log!("panic on thread {}: {info}", thread.name().unwrap_or("?"));
+    }));
     log!("verba — log at {}", log::path().display());
 
     let args: Vec<String> = std::env::args().collect();
@@ -1070,6 +1172,28 @@ fn main() -> Result<()> {
         }
         inject::insert(text)?;
         log!("injected {} chars", text.chars().count());
+        return Ok(());
+    }
+
+    // `verba --press [ms]` — hold the configured hotkey from outside the
+    // keyboard, so a script can drive a dictation. The input is injected, which
+    // the keyboard hook ignores on purpose; it is the hotkey watchdog that
+    // picks it up, so this is also how that path is exercised.
+    if arg1 == Some("--press") {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_SHIFT,
+        };
+        let ms = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1500);
+        let hk = config::load().hotkey;
+        let mut keys = Vec::new();
+        for (on, vk) in [(hk.ctrl, VK_CONTROL), (hk.shift, VK_SHIFT), (hk.alt, VK_MENU), (hk.win, VK_LWIN)] {
+            if on {
+                keys.push(vk);
+            }
+        }
+        keys.push(VIRTUAL_KEY(hk.vk as u16));
+        inject::hold_keys(&keys, ms)?;
+        log!("held {} for {ms}ms", hotkey_label(&hk));
         return Ok(());
     }
 
@@ -1389,8 +1513,7 @@ fn main() -> Result<()> {
         };
     }
 
-    let demo = (arg1 == Some("--overlay-test"))
-        .then(|| args.get(2).cloned().unwrap_or_else(|| config::load().visual));
+    let demo = arg1 == Some("--overlay-test");
     let open_settings = arg1 == Some("--settings");
     // `--onboard` replays the first-run flow without editing the config by
     // hand, which is the only practical way to test changes to it.
@@ -1473,13 +1596,10 @@ fn main() -> Result<()> {
             // The audio stream is !Send on Windows, so the engine owns the
             // recorder and hotkey receiver together on one thread.
             std::thread::Builder::new().name("engine".into()).spawn(move || {
-                match &demo {
-                    Some(v) => overlay_demo(handle, v),
-                    None => {
-                        if let Err(e) = engine_loop(handle) {
-                            log!("engine stopped: {e:#}");
-                        }
-                    }
+                if demo {
+                    overlay_demo(handle);
+                } else if let Err(e) = engine_loop(handle) {
+                    log!("engine stopped: {e:#}");
                 }
             })?;
             Ok(())

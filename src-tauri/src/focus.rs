@@ -14,6 +14,14 @@ pub struct App {
     /// Bare executable name, e.g. "Code.exe".
     pub exe: String,
     pub title: String,
+    /// The window handle, for telling "same window" from "same title".
+    pub hwnd: isize,
+}
+
+/// Just the foreground window handle, for checks that run every few hundred
+/// milliseconds and have no use for the process name.
+pub fn foreground_window() -> isize {
+    unsafe { GetForegroundWindow().0 as isize }
 }
 
 fn process_exe(pid: u32) -> Option<String> {
@@ -60,6 +68,7 @@ pub fn foreground() -> App {
         App {
             exe: process_exe(pid).unwrap_or_default(),
             title,
+            hwnd: hwnd.0 as isize,
         }
     }
 }

@@ -7,7 +7,9 @@
 
 use anyhow::{anyhow, Result};
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
@@ -189,11 +191,39 @@ impl Analyzer {
     }
 }
 
+/// No samples for this long means the stream is dead, not quiet: a capture
+/// stream delivers a buffer every ~10ms even in a silent room.
+const STALL_MS: u64 = 2_000;
+
+fn now_ms() -> u64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+/// Pure so the rule can be tested without a microphone.
+fn stalled(last_ms: u64, now: u64, failed: bool) -> bool {
+    failed || now.saturating_sub(last_ms) > STALL_MS
+}
+
+/// What the capture callback reports back. A USB or Bluetooth mic that goes to
+/// sleep, or an audio service restart, kills the stream without any signal the
+/// engine would see: the ring just stops growing, every dictation reads as
+/// empty, and the overlay still opens as if nothing were wrong.
+struct Health {
+    last_ms: AtomicU64,
+    failed: AtomicBool,
+}
+
 pub struct Recorder {
     ring: Arc<Mutex<Ring>>,
     analyzer: Mutex<Analyzer>,
     sample_rate: u32,
-    _stream: cpal::Stream,
+    health: Arc<Health>,
+    /// Test seam, see `fake`. Set on `mark()` to start the recording playing.
+    play: Option<Arc<AtomicBool>>,
+    /// Test seam: when a fake recorder starts reporting itself dead.
+    fake_dies_at: Option<u64>,
+    _stream: Option<cpal::Stream>,
 }
 
 /// Input device names for the settings picker.
@@ -211,6 +241,9 @@ impl Recorder {
     /// A named device that has since been unplugged falls back to the default
     /// rather than refusing to start.
     pub fn new(wanted: Option<&str>) -> Result<Self> {
+        if let Ok(wav) = std::env::var("VERBA_FAKE_MIC") {
+            return Self::fake(&wav);
+        }
         let host = cpal::default_host();
         let device = wanted
             .and_then(|name| {
@@ -233,16 +266,23 @@ impl Recorder {
             cap: sample_rate as usize * RING_SECS,
         }));
 
-        let err_fn = |e| eprintln!("audio stream error: {e}");
+        let health = Arc::new(Health { last_ms: AtomicU64::new(now_ms()), failed: AtomicBool::new(false) });
+        let err_health = Arc::clone(&health);
+        let err_fn = move |e| {
+            err_health.failed.store(true, Ordering::Relaxed);
+            crate::log!("audio stream error: {e}");
+        };
 
         // Downmix to mono in the callback so the ring is channel-count agnostic.
         macro_rules! build {
             ($t:ty, $conv:expr) => {{
                 let ring = Arc::clone(&ring);
+                let health = Arc::clone(&health);
                 let conv: fn($t) -> f32 = $conv;
                 device.build_input_stream(
                     config.clone(),
                     move |data: &[$t], _: &cpal::InputCallbackInfo| {
+                        health.last_ms.store(now_ms(), Ordering::Relaxed);
                         let Ok(mut r) = ring.lock() else { return };
                         for frame in data.chunks(channels) {
                             let sum: f32 = frame.iter().map(|&s| conv(s)).sum();
@@ -269,8 +309,74 @@ impl Recorder {
             ring,
             analyzer: Mutex::new(Analyzer::new(sample_rate)),
             sample_rate,
-            _stream: stream,
+            health,
+            play: None,
+            fake_dies_at: None,
+            _stream: Some(stream),
         })
+    }
+
+    /// A recorder fed from a WAV instead of a microphone, selected with
+    /// `VERBA_FAKE_MIC=<path>`. Silence until the hotkey goes down, then the
+    /// recording plays once at real speed, so the whole app can be driven end
+    /// to end by a script with nobody speaking.
+    fn fake(path: &str) -> Result<Self> {
+        let (wav, rate) = crate::read_wav(std::path::Path::new(path))?;
+        let ring = Arc::new(Mutex::new(Ring {
+            buf: VecDeque::with_capacity(rate as usize * RING_SECS),
+            written: 0,
+            cap: rate as usize * RING_SECS,
+        }));
+        let play = Arc::new(AtomicBool::new(false));
+        let (feed_ring, feed_play) = (Arc::clone(&ring), Arc::clone(&play));
+        std::thread::Builder::new().name("fake-mic".into()).spawn(move || {
+            let start = Instant::now();
+            let (mut pushed, mut pos) = (0u64, None::<usize>);
+            loop {
+                std::thread::sleep(Duration::from_millis(5));
+                if feed_play.swap(false, Ordering::SeqCst) {
+                    pos = Some(0);
+                }
+                let due = (start.elapsed().as_secs_f64() * rate as f64) as u64;
+                let mut r = lock(&feed_ring);
+                while pushed < due {
+                    let s = match pos {
+                        Some(p) if p < wav.len() => { pos = Some(p + 1); wav[p] }
+                        _ => { pos = None; 0.0 }
+                    };
+                    r.push(s);
+                    pushed += 1;
+                }
+            }
+        })?;
+        crate::log!("mic: fake, {path} @ {rate} Hz");
+        Ok(Self {
+            ring,
+            analyzer: Mutex::new(Analyzer::new(rate)),
+            sample_rate: rate,
+            health: Arc::new(Health { last_ms: AtomicU64::new(0), failed: AtomicBool::new(false) }),
+            play: Some(play),
+            // `VERBA_FAKE_MIC_DIES_AFTER=<secs>` makes the stream look dead
+            // after that long, which is the only way to run the real revive
+            // path without unplugging a microphone.
+            fake_dies_at: std::env::var("VERBA_FAKE_MIC_DIES_AFTER")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|secs| now_ms() + secs * 1000),
+            _stream: None,
+        })
+    }
+
+    /// False once the stream has errored or stopped delivering audio.
+    pub fn healthy(&self) -> bool {
+        if self.play.is_some() {
+            return self.fake_dies_at.map_or(true, |at| now_ms() < at);
+        }
+        !stalled(
+            self.health.last_ms.load(Ordering::Relaxed),
+            now_ms(),
+            self.health.failed.load(Ordering::Relaxed),
+        )
     }
 
     /// Per-band energy of the most recent audio, one value per ribbon.
@@ -289,6 +395,9 @@ impl Recorder {
 
     /// Absolute index to start from, reaching `PREROLL_MS` into the past.
     pub fn mark(&self) -> u64 {
+        if let Some(play) = &self.play {
+            play.store(true, Ordering::SeqCst);
+        }
         let preroll = (self.sample_rate as u64 * PREROLL_MS as u64) / 1000;
         lock(&self.ring).written.saturating_sub(preroll)
     }
@@ -392,6 +501,14 @@ mod tests {
         let out = to_16k(&input, 48_000).unwrap();
         let drift = (out.len() as i64 - 16_000).abs();
         assert!(drift < 500, "got {} samples, expected ~16000", out.len());
+    }
+
+    #[test]
+    fn a_silent_stream_is_stalled_but_a_slow_one_is_not() {
+        assert!(!stalled(1_000, 1_500, false), "half a second is jitter");
+        assert!(stalled(1_000, 1_000 + STALL_MS + 1, false), "no data for seconds is dead");
+        assert!(stalled(1_000, 1_001, true), "an error is dead at once");
+        assert!(!stalled(5_000, 4_000, false), "a clock step back must not read as a stall");
     }
 
     #[test]

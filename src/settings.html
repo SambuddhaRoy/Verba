@@ -2,14 +2,14 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Verba — Settings</title>
+<title>Verba settings</title>
 <link rel="stylesheet" href="settings.css">
 </head>
 <body>
 
 <header data-tauri-drag-region>
   <span class="mark"></span>
-  <span class="title" data-tauri-drag-region>Verba — Settings</span>
+  <span class="title" data-tauri-drag-region>Verba settings</span>
   <div class="winbtns">
     <button id="min" title="Minimise">&#8212;</button>
     <button id="close" title="Close">&#10005;</button>
@@ -23,11 +23,10 @@
     <button class="nav" data-panel="models"><i></i>Models</button>
     <button class="nav" data-panel="modes"><i></i>Modes</button>
     <button class="nav" data-panel="learning"><i></i>Vocabulary</button>
-    <button class="nav" data-panel="appearance"><i></i>Appearance</button>
     <button class="nav" data-panel="about"><i></i>About</button>
     <div class="rig">
-      <div class="mono" id="rig-line">detecting hardware…</div>
-      <p id="rig-note">All processing on-device.</p>
+      <div class="mono" id="rig-line">Detecting hardware…</div>
+      <p id="rig-note">Everything runs on this PC.</p>
     </div>
   </nav>
 
@@ -35,19 +34,19 @@
     <!-- General -->
     <div class="panel on" id="p-general">
       <h1>General</h1>
-      <p class="sub">Hold the hotkey to dictate, release to insert at your caret.</p>
+      <p class="sub">Hold the hotkey and speak. Let go when you're done.</p>
 
       <div class="card row">
         <div class="grow">
-          <b>Global hotkey</b>
-          <small id="hk-note">Held to dictate. Swallowed while held, so the focused app never sees it.</small>
+          <b>Hotkey</b>
+          <small id="hk-note">Hold it to dictate. The app you're typing in never sees the key.</small>
         </div>
         <div class="keys" id="hk-keys"></div>
         <button class="btn" id="hk-capture">Change</button>
       </div>
 
       <div class="card row">
-        <div class="grow"><b>Launch at startup</b><small>Start Verba when you sign in.</small></div>
+        <div class="grow"><b>Launch at startup</b><small>Start Verba when you sign in to Windows.</small></div>
         <button class="tgl" id="launch_at_startup"></button>
       </div>
 
@@ -58,15 +57,37 @@
           <option value="auto">Auto-detect</option>
         </select>
       </div>
+
+      <h2 class="sec">Troubleshooting</h2>
+      <div class="card row">
+        <div class="grow">
+          <b>Shrink the overlay window <span class="beta">EXPERIMENTAL</span></b>
+          <small>Turn this on if a frame appears around the overlay. Tools that restyle
+            windows, such as Windhawk's translucent&#8209;windows mod, paint the whole
+            window rectangle, and Verba's is a large transparent canvas. Shrinking it cuts
+            the frame from about 90 pixels a side to under ten. To remove it completely,
+            add <code>Verba.exe</code> to that tool's excluded programs.</small>
+        </div>
+        <button class="tgl" id="tight_overlay_window"></button>
+      </div>
     </div>
 
     <!-- Dictation -->
     <div class="panel" id="p-dictation">
       <h1>Dictation</h1>
-      <p class="sub">Capture runs continuously into a rolling buffer, so the first word is never clipped.</p>
+      <p class="sub">Verba keeps the microphone open and holds a short buffer in memory, so your first word isn't clipped.</p>
 
       <div class="card row">
-        <div class="grow"><b>Microphone</b><small>Audio never leaves the machine.</small></div>
+        <div class="grow">
+          <b>Type as you speak</b>
+          <small>Words appear in the app while you talk, instead of all at once when you let go.
+            Skips the Ollama rewrite, which needs the whole sentence.</small>
+        </div>
+        <button class="tgl" id="live_typing"></button>
+      </div>
+
+      <div class="card row">
+        <div class="grow"><b>Microphone</b><small>Audio stays on this PC.</small></div>
         <select id="microphone"><option value="">System default</option></select>
       </div>
 
@@ -74,7 +95,7 @@
         <div class="row">
           <div class="grow">
             <b>CPU threads</b>
-            <small>Left at default this is physical cores minus two, so dictating doesn't stutter everything else.</small>
+            <small>Auto uses your physical cores minus two, so dictating doesn't slow everything else down.</small>
           </div>
           <span class="mono val" id="threads-val">auto</span>
         </div>
@@ -82,7 +103,7 @@
       </div>
 
       <div class="card row">
-        <div class="grow"><b>Preload model</b><small>Load at startup instead of on first use. Costs memory while idle, removes the first-use stall.</small></div>
+        <div class="grow"><b>Preload model</b><small>Load the model at startup, not on first use. It uses memory while idle but spares you the wait on your first dictation.</small></div>
         <button class="tgl" id="preload_model"></button>
       </div>
 
@@ -90,7 +111,7 @@
         <div class="row">
           <div class="grow">
             <b>Unload when idle</b>
-            <small>Free the model's memory after a quiet spell. The next dictation pays the reload.</small>
+            <small>Free the model's memory after this long without dictating. The next dictation waits for it to reload.</small>
           </div>
           <span class="mono val" id="eject-val">10 min</span>
         </div>
@@ -101,7 +122,7 @@
     <!-- Models -->
     <div class="panel" id="p-models">
       <h1>Models</h1>
-      <p class="sub" id="rec-line">Working out what suits this machine…</p>
+      <p class="sub" id="rec-line">Checking your hardware…</p>
 
       <div class="seg" id="engine"></div>
       <p class="hint" id="engine-hint"></p>
@@ -130,12 +151,12 @@
     <!-- Modes -->
     <div class="panel" id="p-modes">
       <h1>Modes</h1>
-      <p class="sub">How a finished transcript is formatted before it is inserted. The mode is chosen by which app had focus when you started speaking.</p>
+      <p class="sub">A mode sets how text is formatted before it's inserted. Verba picks one from the app you were in when you started speaking.</p>
 
       <div class="card row" id="ollama-card">
         <div class="grow">
           <b>Ollama <span class="dot" id="ollama-dot"></span><span id="ollama-state"></span></b>
-          <small id="ollama-note">Runs the rewrite pass locally.</small>
+          <small id="ollama-note">Runs the optional rewrite on this PC.</small>
         </div>
         <button class="btn" id="ollama-action" hidden></button>
       </div>
@@ -143,13 +164,13 @@
       <div class="card row">
         <div class="grow">
           <b>Rewrite model</b>
-          <small id="llm-note">Used only by modes with the model pass switched on.</small>
+          <small id="llm-note">Only used by modes that have the rewrite turned on.</small>
         </div>
         <select id="llm_model"></select>
       </div>
 
       <h2 class="sect">Available models</h2>
-      <p class="hint">Kept to 4B and under: the rewrite runs between you finishing a sentence and the text appearing, so a bigger model is the wrong trade.</p>
+      <p class="hint">Every model here is 4B parameters or smaller. The rewrite runs while you wait for your text, so a bigger model costs more time than it gains.</p>
       <div id="llm-list"></div>
 
       <div class="card row">
@@ -157,35 +178,34 @@
         <select id="default_mode"></select>
       </div>
 
-      <h2 class="sect">Modes</h2>
+      <h2 class="sect">Edit modes</h2>
       <div id="modes"></div>
 
       <h2 class="sect">App routing</h2>
-      <p class="hint">First match wins. Executable names are matched exactly; the title condition is an optional substring.</p>
+      <p class="hint">The first matching rule wins. The program name must match exactly. The window title is optional and matches any part of it.</p>
       <div id="rules"></div>
       <button class="btn" id="add-rule">Add rule</button>
-
-      <h2 class="sect">Vocabulary</h2>
-      <p class="hint">One term per line to fix its casing, or <code>spoken =&gt; written</code> to rewrite a phrase the recogniser mangles. Applied before any model sees the text.</p>
-      <textarea id="vocabulary" spellcheck="false" placeholder="ONNX&#10;Kubernetes&#10;on ex =&gt; ONNX"></textarea>
     </div>
 
-    <!-- Vocabulary: packs and learning -->
+    <!-- Vocabulary: your terms, packs and learning -->
     <div class="panel" id="p-learning">
       <h1>Vocabulary</h1>
-      <p class="sub">Packs teach Verba a domain. Learning teaches it you.</p>
+      <p class="sub">Packs add the vocabulary of a field. Corrections teach Verba your own words.</p>
+
+      <h2 class="sec">Your terms</h2>
+      <p class="hint">Put one term on each line to fix its capitalisation. Write <code>spoken =&gt; written</code> to replace a phrase the recogniser gets wrong. These rules run before the rewrite model sees the text.</p>
+      <textarea id="vocabulary" spellcheck="false" placeholder="ONNX&#10;Kubernetes&#10;on ex =&gt; ONNX"></textarea>
 
       <h2 class="sec">Domain packs</h2>
-      <p class="hint">Vocabulary and formatting rules for a field. Enable as many as you
-        need — the Code and Medical packs work together fine.</p>
+      <p class="hint">Vocabulary and formatting rules for one field. You can turn on several at once.</p>
       <div id="pack-list"></div>
 
       <h2 class="sec">Learn from corrections</h2>
       <div class="card row">
         <div class="grow">
           <b>Remember what you fix</b>
-          <small>When you correct a dictation, Verba keeps the difference and stops
-            making that mistake. Your words are stored on this machine only.</small>
+          <small>When you correct a dictation, Verba keeps the difference and stops repeating
+            that mistake. Corrections are stored on this PC only.</small>
         </div>
         <button class="tgl" id="learn_from_corrections"></button>
       </div>
@@ -214,52 +234,16 @@
       </div>
     </div>
 
-    <!-- Appearance -->
-    <div class="panel" id="p-appearance">
-      <h1>Appearance</h1>
-      <p class="sub">Two overlay treatments. Both react to the sound of your voice.</p>
-      <div class="visuals">
-        <button class="vis on" data-v="ribbons">
-          <div class="vis-art art-ribbons"></div>
-          <b>Ribbons</b><small>Seven interference bands, screen-blended. Floats with no surface.</small>
-        </button>
-        <button class="vis" data-v="glow">
-          <div class="vis-art art-glow"><span></span></div>
-          <b>Glow</b><small>Dark translucent box inside a blue aura that drifts with speech.</small>
-        </button>
-        <button class="vis" data-v="minimal">
-          <div class="vis-art art-minimal"><i></i><b class="cur"></b></div>
-          <b>Minimal</b><small>A recorder waveform: loudness over time, scrolling under a playhead.</small>
-        </button>
-      </div>
-
-      <h2 class="sec">Troubleshooting</h2>
-      <div class="card row">
-        <div class="grow">
-          <b>Shrink the overlay window <span class="beta">EXPERIMENTAL</span></b>
-          <small>Turn this on if a translucent panel appears <em>around</em> the overlay.
-            Tools that restyle windows — Windhawk's translucent&#8209;windows mod is the
-            common one — paint the whole window rectangle, and Verba's is a large mostly
-            transparent canvas, so the effect shows as a box floating around the visible
-            panel. Shrinking the window to hug the panel cuts that band from roughly
-            ninety pixels a side to under ten. It cannot remove it entirely, and it
-            trims the glow treatment's outer aura. The dependable fix is to add
-            <code>Verba.exe</code> to that tool's own excluded&#8209;programs list.</small>
-        </div>
-        <button class="tgl" id="tight_overlay_window"></button>
-      </div>
-    </div>
-
     <!-- About -->
     <div class="panel" id="p-about">
       <h1>About</h1>
-      <p class="sub" id="about-sub">Verba — local-first speech to text.</p>
+      <p class="sub" id="about-sub">Local speech to text for Windows.</p>
 
       <div class="card up" id="up-card">
         <div class="row">
           <div class="grow">
             <b>Updates <span class="dot" id="up-dot"></span></b>
-            <small id="up-note">Checking&hellip;</small>
+            <small id="up-note">Checking…</small>
           </div>
           <button class="btn" id="up-action" hidden></button>
         </div>
@@ -269,33 +253,32 @@
       <div class="card row">
         <div class="grow">
           <b>Update automatically</b>
-          <small>Install new versions from GitHub. Verba only restarts once you have
-            stopped dictating.</small>
+          <small>Download new versions from GitHub. Verba restarts only after you've
+            stopped dictating for two minutes.</small>
         </div>
         <button class="tgl" id="auto_update"></button>
       </div>
 
       <h2 class="sec">Network activity</h2>
-      <p class="hint">Every connection Verba itself opens, as it happens. Dictate, format and
-        insert without touching this list — a fully local session adds nothing to it.</p>
+      <p class="hint">Every connection Verba opens, listed as it happens. A session of
+        dictating, formatting and inserting adds nothing here.</p>
 
       <div class="card net" id="net-card">
         <div class="row">
           <div class="grow">
             <b><span id="net-count">No outbound requests</span></b>
-            <small id="net-note">Speech never leaves the machine. Model downloads, update
-              checks and Ollama calls appear here when they happen.</small>
+            <small id="net-note">Your speech never leaves this PC. Model downloads, update
+              checks and Ollama calls show up here when they happen.</small>
           </div>
           <button class="btn" id="net-clear">Clear</button>
         </div>
         <div id="net-list"></div>
       </div>
 
-      <p class="hint">Verba cannot see inside its own child processes. The faster&#8209;whisper
-        and Parakeet engines are Python, so when they install dependencies or fetch their
-        weights those connections belong to <code>pip</code> and
-        <code>huggingface_hub</code>, not to this list. Everything Verba does itself is
-        here, guaranteed by a test that fails the build if any request bypasses the log.</p>
+      <p class="hint">This list can't see inside Verba's child processes. The faster&#8209;whisper
+        and Parakeet engines run in Python, so their installs and weight downloads are made by
+        <code>pip</code> and <code>huggingface_hub</code> and won't appear here. Every request
+        Verba makes itself does, and a test fails the build if one skips the log.</p>
 
       <div class="card"><div class="grow"><b>Log file</b><small class="mono" id="logpath">…</small></div></div>
       <div class="card"><div class="grow"><b>Config</b><small class="mono" id="cfgpath">…</small></div></div>

@@ -213,14 +213,14 @@ function armCapture() {
   arming = true;
   $('hk-capture').classList.add('arm');
   $('hk-capture').textContent = 'Press keys…';
-  $('hk-note').textContent = 'Hold your modifiers and press the main key. Esc cancels.';
+  $('hk-note').textContent = 'Hold your modifiers, then press the main key. Esc cancels.';
 }
 function disarmCapture() {
   arming = false;
   $('hk-capture').classList.remove('arm');
   $('hk-capture').textContent = 'Change';
   $('hk-note').textContent =
-    'Held to dictate. Swallowed while held, so the focused app never sees it.';
+    "Hold it to dictate. The app you're typing in never sees the key.";
   drawHotkey(cfg.hotkey, false);
 }
 
@@ -237,7 +237,7 @@ window.addEventListener('keydown', e => {
   if (!mapped) { toast(`${e.code} can't be used as a hotkey`); return; }
   if (!e.ctrlKey && !e.altKey && !e.metaKey) {
     // A bare key, or Shift+key, would fire during ordinary typing.
-    toast('Include Ctrl, Alt or Win, or the hotkey will fire while you type');
+    toast('Add Ctrl, Alt or Win, or the hotkey will fire while you type');
     return;
   }
   cfg.hotkey = {
@@ -252,6 +252,7 @@ function render() {
   drawHotkey(cfg.hotkey, false);
   $('launch_at_startup').classList.toggle('on', cfg.launch_at_startup);
   $('preload_model').classList.toggle('on', cfg.preload_model);
+  $('live_typing').classList.toggle('on', cfg.live_typing);
   $('auto_update').classList.toggle('on', cfg.auto_update);
   $('tight_overlay_window').classList.toggle('on', cfg.tight_overlay_window);
   $('language').value = cfg.language;
@@ -267,8 +268,6 @@ function render() {
     .forEach(b => b.classList.toggle('on', b.dataset.v === cfg.engine));
   document.querySelectorAll('.model')
     .forEach(b => b.hidden = b.dataset.engine !== cfg.engine);
-  document.querySelectorAll('.vis')
-    .forEach(b => b.classList.toggle('on', b.dataset.v === cfg.visual));
   document.querySelectorAll('.model')
     .forEach(b => b.classList.toggle('on', b.dataset.file === cfg.model));
 }
@@ -278,7 +277,7 @@ function render() {
 async function boot() {
   if (!invoke) {
     document.body.insertAdjacentHTML('afterbegin',
-      '<p style="padding:20px;color:#f88">Tauri API unavailable — settings cannot load.</p>');
+      '<p style="padding:20px;color:#f88">The Tauri API is unavailable, so settings cannot load.</p>');
     return;
   }
 
@@ -296,10 +295,10 @@ async function boot() {
     `${hw.cores}C/${hw.threads}T · ${(hw.ram_mb / 1024).toFixed(0)} GB RAM<br>` +
     `${hw.gpu}<br>${vram} · ${hw.gpu_backend.toUpperCase()}`;
   $('rig-note').textContent = hw.gpu_backend === 'cpu'
-    ? 'CPU only — this build has no GPU backend.'
-    : 'GPU offload active. All processing on-device.';
+    ? 'CPU only. This build has no GPU backend.'
+    : 'GPU offload is on. Everything runs on this PC.';
 
-  $('rec-line').textContent = `Recommended for this machine: ${s.recommendation.reason}.`;
+  $('rec-line').textContent = `Recommended for this PC: ${s.recommendation.reason}.`;
 
   // Microphones.
   const mic = $('microphone');
@@ -312,11 +311,12 @@ async function boot() {
 
   $('language').onchange = e => { cfg.language = e.target.value; save('Language set'); };
 
-  bindToggle('launch_at_startup', 'Startup preference saved');
-  bindToggle('preload_model', 'Preload preference saved');
-  bindToggle('auto_update', 'Update preference saved');
-  bindToggle('tight_overlay_window', 'Overlay effect workaround toggled');
-  bindToggle('learn_from_corrections', 'Learning preference saved');
+  bindToggle('launch_at_startup', 'Startup setting saved');
+  bindToggle('preload_model', 'Preload setting saved');
+  bindToggle('live_typing', 'Takes effect on your next dictation');
+  bindToggle('auto_update', 'Update setting saved');
+  bindToggle('tight_overlay_window', 'Overlay size saved');
+  bindToggle('learn_from_corrections', 'Learning setting saved');
 
   $('fix-save').onclick = () => {
     invoke('record_correction', { fixed: $('fix-text').value })
@@ -375,7 +375,7 @@ async function boot() {
           toast(`${err}`);
         });
       } else {
-        toast(`${en.name} is not built into this version`);
+        toast(`${en.name} isn't part of this version`);
       }
     };
     segs.appendChild(b);
@@ -440,11 +440,11 @@ async function boot() {
     }
 
     row.onclick = () => {
-      if (!built) { toast(`Needs the ${engineOf(m.engine)?.name} engine, which isn't built yet`); return; }
+      if (!built) { toast(`This model needs the ${engineOf(m.engine)?.name} engine, which isn't available yet`); return; }
       if (!m.installed) { toast('Download it first'); return; }
       cfg.model = m.file;
       render();
-      save('Model set — takes effect on next dictation');
+      save('Model set. It loads on your next dictation');
     };
     wrap.appendChild(row);
   });
@@ -456,13 +456,9 @@ async function boot() {
     invoke('reveal_models_dir').catch(e => toast(`${e}`));
   $('hk-capture').onclick = () => (arming ? disarmCapture() : armCapture());
 
-  document.querySelectorAll('.vis').forEach(b => {
-    b.onclick = () => { cfg.visual = b.dataset.v; render(); save('Overlay style set'); };
-  });
-
   $('logpath').textContent = s.log_path;
   $('cfgpath').textContent = s.config_path;
-  $('about-sub').textContent = `Verba ${s.version} — local-first speech to text.`;
+  $('about-sub').textContent = `Verba ${s.version}. Local speech to text for Windows.`;
   buildUpdates(s);
   buildPython(s);
   buildNetwork();
@@ -493,7 +489,7 @@ function buildNetwork() {
     $('net-count').textContent = list.length === 0
       ? 'No outbound requests'
       : `${list.length} request${list.length === 1 ? '' : 's'}` +
-        (remote === 0 ? ' — all to this machine' : `, ${remote} off this machine`);
+        (remote === 0 ? ', all to this PC' : `, ${remote} off this PC`);
 
     list.slice(0, 60).forEach(e => {
       const row = document.createElement('div');
@@ -503,7 +499,7 @@ function buildNetwork() {
         `<span class="t">${when}</span>` +
         `<span class="m">${e.method}</span>` +
         `<span class="h">${e.host}</span>` +
-        `<span class="w">${e.local ? 'this machine' : e.purpose}</span>`;
+        `<span class="w">${e.local ? 'this PC' : e.purpose}</span>`;
       row.title = e.url;
       host.appendChild(row);
     });
@@ -557,18 +553,18 @@ function buildPython(s) {
   if (py.state === 'too-old') {
     state.textContent = `PYTHON ${py.version}`;
     note.textContent =
-      `Parakeet and faster-whisper need Python ${py.needs} or newer. Found ${py.version} at ${py.path}.`;
+      `Parakeet and faster-whisper need Python ${py.needs} or newer. Verba found ${py.version} at ${py.path}.`;
   } else if (py.state === 'store-stub-only') {
     state.textContent = 'NOT INSTALLED';
     // Worth spelling out: typing `python` in a terminal does something, so the
     // user reasonably believes it is installed.
     note.textContent =
-      'Windows ships a placeholder that opens the Microsoft Store, which is why ' +
-      'typing python appears to work. Parakeet and faster-whisper need the real thing.';
+      'Windows puts a placeholder on your PATH that opens the Microsoft Store, so typing ' +
+      'python seems to work. Parakeet and faster-whisper need a real install.';
   } else {
     state.textContent = 'NOT INSTALLED';
     note.textContent =
-      'Parakeet and faster-whisper run as Python sidecars. whisper.cpp needs nothing extra.';
+      'Parakeet and faster-whisper run in Python. whisper.cpp needs nothing extra.';
   }
 
   action.hidden = false;
@@ -611,7 +607,7 @@ function buildPacks() {
       ].filter(Boolean).join(' · ');
       row.innerHTML =
         `<div class="grow"><b>${p.name}${p.user ? ' <span class="mine">YOURS</span>' : ''}</b>
-           <small>${p.description}${counts ? ` — ${counts}` : ''}</small></div>`;
+           <small>${p.description}${counts ? ` (${counts})` : ''}</small></div>`;
       const tgl = document.createElement('button');
       tgl.className = 'tgl' + (on ? ' on' : '');
       tgl.onclick = () => {
@@ -652,7 +648,7 @@ function buildLearning() {
     host.innerHTML = '';
     $('learn-count').textContent = list.length
       ? `${list.length} correction${list.length === 1 ? '' : 's'} remembered.`
-      : 'Nothing yet — correct a dictation above.';
+      : 'Nothing yet. Correct a dictation above.';
 
     list.slice(0, 40).forEach(l => {
       const row = document.createElement('div');
@@ -693,7 +689,7 @@ function buildUpdates(s) {
   if (s.update_staged) {
     dot.classList.add('up');
     note.textContent =
-      'A new version is downloaded and will be installed once you have stopped dictating.';
+      "A new version is downloaded. It installs once you've stopped dictating.";
     action.hidden = false;
     action.textContent = 'Restart now';
     action.onclick = () => {
@@ -769,7 +765,7 @@ function renderRules() {
     row.innerHTML = `
       <select>${modeOptions(r.mode)}</select>
       <input class="exe" placeholder="Code.exe, devenv.exe" value="${(r.exe || []).join(', ')}">
-      <input class="ttl" placeholder="title contains… (optional)" value="${r.title ?? ''}">
+      <input class="ttl" placeholder="Title contains (optional)" value="${r.title ?? ''}">
       <button class="del" title="Remove">&#10005;</button>`;
     const [sel, exe, ttl] = [row.querySelector('select'), row.querySelector('.exe'), row.querySelector('.ttl')];
     sel.onchange = () => { cfg.rules[i].mode = sel.value; save(); };
@@ -801,11 +797,11 @@ function buildOllama(s) {
   if (s.ollama_status === 'running') {
     dot.classList.add('up');
     state.textContent = 'RUNNING';
-    note.textContent = 'Runs the rewrite pass locally. Verba starts it automatically when needed.';
+    note.textContent = 'Runs the optional rewrite on this PC. Verba starts it when needed.';
   } else if (s.ollama_status === 'stopped') {
     dot.classList.add('down');
     state.textContent = 'STOPPED';
-    note.textContent = 'Installed but not running. Verba starts it on the next dictation, or start it now.';
+    note.textContent = "Installed but not running. Verba starts it on your next dictation, or you can start it now.";
     action.hidden = false;
     action.textContent = 'Start';
     action.onclick = () => {
@@ -821,7 +817,7 @@ function buildOllama(s) {
     // Deliberately not offering to install it: that is a signed installer from
     // another vendor, and silently fetching and running one is not Verba's
     // call to make.
-    note.textContent = 'Post-processing needs Ollama. Install it from ollama.com, then reopen this window.';
+    note.textContent = 'The rewrite needs Ollama. Install it from ollama.com, then reopen this window.';
     action.hidden = false;
     action.textContent = 'Open ollama.com';
     action.onclick = () => invoke('open_url', { url: 'https://ollama.com/download' })
@@ -838,7 +834,7 @@ function buildLlmList(s) {
     const row = document.createElement('div');
     row.className = 'llm' + (m.name === cfg.llm_model ? ' on' : '');
     row.dataset.name = m.name;
-    const size = m.local_only ? 'on this machine' : `${m.size_gb.toFixed(1)} GB`;
+    const size = m.local_only ? 'already on this PC' : `${m.size_gb.toFixed(1)} GB`;
     row.innerHTML = `
       <div class="top">
         <span class="nm">${m.name}</span>
@@ -894,8 +890,8 @@ function buildModes(s) {
     .map(n => `<option value="${n}"${n === cfg.llm_model ? ' selected' : ''}>${n}</option>`)
     .join('');
   $('llm-note').textContent = have.length
-    ? 'Used only by modes with the model pass switched on.'
-    : `Nothing pulled yet. Download ${s.llm_recommended} below — modes with the model pass on insert the cleaned transcript until then.`;
+    ? 'Only used by modes that have the rewrite turned on.'
+    : `No model downloaded yet. Get ${s.llm_recommended} below. Until then, modes with the rewrite on insert the cleaned transcript as it is.`;
   sel.onchange = () => { cfg.llm_model = sel.value; buildLlmList(s); save('Rewrite model set'); };
 
   const def = $('default_mode');
@@ -910,7 +906,7 @@ function buildModes(s) {
     card.innerHTML = `
       <div class="hd">
         <span class="nm">${m.name}</span><span class="id">${m.id}</span>
-        <span class="sw"><span>model pass</span><button class="tgl${m.llm ? ' on' : ''}"></button></span>
+        <span class="sw"><span>rewrite</span><button class="tgl${m.llm ? ' on' : ''}"></button></span>
       </div>
       <div class="desc">${m.description}</div>`;
     const tgl = card.querySelector('.tgl');
@@ -920,7 +916,7 @@ function buildModes(s) {
     const ta = document.createElement('textarea');
     ta.spellcheck = false;
     ta.value = m.instructions;
-    ta.placeholder = 'Instructions for the rewrite model…';
+    ta.placeholder = 'Tell the rewrite model what to do…';
     ta.hidden = !m.llm;
     ta.onchange = () => { cfg.modes[i].instructions = ta.value; save('Instructions saved'); };
     card.appendChild(ta);
@@ -929,7 +925,7 @@ function buildModes(s) {
       cfg.modes[i].llm = !cfg.modes[i].llm;
       tgl.classList.toggle('on', cfg.modes[i].llm);
       ta.hidden = !cfg.modes[i].llm;
-      save(cfg.modes[i].llm ? 'Model pass on' : 'Model pass off');
+      save(cfg.modes[i].llm ? 'Rewrite on' : 'Rewrite off');
     };
     host.appendChild(card);
   });

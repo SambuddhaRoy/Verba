@@ -90,10 +90,40 @@ CHECKS.settings = async (t, s) => {
        rows.filter(r => r.classList.contains('local')).length === 1,
        `${rows.filter(r => r.classList.contains('local')).length} marked local`);
   t.is('the count names how many left the machine',
-       /1 off this machine/.test(document.getElementById('net-count').textContent),
+       /1 off this PC/.test(document.getElementById('net-count').textContent),
        document.getElementById('net-count').textContent);
   t.is('a destination is shown',
        rows.some(r => r.querySelector('.h').textContent === 'api.github.com'));
+
+  // The overlay used to have four treatments and a picker. It has one now, so
+  // the picker, its panel and its nav entry must all be gone.
+  t.is('there is no appearance panel',
+       !document.getElementById('p-appearance') && !document.querySelector('.nav[data-panel="appearance"]'));
+  t.is('there is no overlay picker', document.querySelectorAll('.vis').length === 0);
+
+  // Live typing is a plain toggle that writes straight through to the config.
+  const live = document.getElementById('live_typing');
+  t.is('live typing has a toggle in the dictation panel',
+       !!live && document.getElementById('p-dictation').contains(live));
+  const before = cfg.live_typing;
+  live.click();
+  t.is('the live typing toggle flips the setting',
+       cfg.live_typing === !before && live.classList.contains('on') === cfg.live_typing,
+       `cfg=${cfg.live_typing}`);
+  live.click();
+
+  // The window shrink workaround moved to General, and your own vocabulary
+  // terms moved from the long Modes page to the Vocabulary page.
+  t.is('the shrink workaround is under General',
+       document.getElementById('p-general').contains(document.getElementById('tight_overlay_window')));
+  t.is('your vocabulary terms are on the vocabulary page',
+       document.getElementById('p-learning').contains(document.getElementById('vocabulary')));
+
+  // Copy: no em dashes in the visible text of any panel.
+  const dashed = [...document.querySelectorAll('section *')]
+    .filter(n => n.children.length === 0 && n.textContent.includes('\u2014'))
+    .map(n => n.textContent.trim().slice(0, 40));
+  t.is('no em dashes in the settings copy', dashed.length === 0, dashed.join(' | '));
 };
 
 /* ------------------------------------------------------------ onboarding */
@@ -157,53 +187,108 @@ CHECKS.onboard = async (t, s) => {
 /* -------------------------------------------------------------- overlay */
 
 CHECKS.overlay = async (t, s) => {
-  await t.boot(() => typeof setVisual === 'function');
-  t.is('accent palette self-test', accentSelfTest().includes('passed'), accentSelfTest());
+  await t.boot(() => typeof tick === 'function');
+  t.is('no JS errors', window.__errors.length === 0, window.__errors.join('; '));
 
-  for (const v of ['ribbons', 'glow', 'minimal']) {
-    setVisual(v);
-    t.is(`visual ${v} shows its stage`,
-         !document.getElementById(`stage-${v}`).hidden);
-  }
-
-  // The visualisers not reacting to speech was reported twice. The check is
-  // that the geometry actually changes with the spectrum.
-  setVisual('ribbons');
-  setPhase('listening');
-  const path = () => document.querySelector('#ribbons path').getAttribute('d');
+  const stage = document.getElementById('stage-orb');
+  const orb = document.getElementById('orb');
+  const wave = () => document.querySelector('#orb-ribbons path').getAttribute('d');
 
   // The render loop is driven here rather than waited on. Headless Chrome does
   // not reliably run requestAnimationFrame under --virtual-time-budget, so the
   // geometry would never be written and the check would pass or fail for the
   // wrong reason. tick() is the same function the rAF loop calls.
   let now = performance.now();
-  const advance = frames => {
-    for (let i = 0; i < frames; i++) { now += 16; tick(now); }
-  };
+  const advance = frames => { for (let i = 0; i < frames; i++) { now += 16; tick(now); } };
+  // Every real payload carries all 24 bands; an empty array would resize the
+  // spectrum to nothing and turn the wave into NaN.
+  const said = payload =>
+    window.__subs['verba:state']({ payload: { bands: new Array(24).fill(0), ...payload } });
 
-  setBands(new Array(24).fill(0.02));
+  // The visualiser not reacting to speech was reported twice. The check is that
+  // the geometry actually changes with the spectrum.
+  said({ phase: 'listening', status: 'LISTENING', bands: new Array(24).fill(0.02) });
   advance(30);
-  const quiet = path();
-  setBands(new Array(24).fill(0.95));
+  const quiet = wave();
+  said({ phase: 'listening', status: 'LISTENING', bands: new Array(24).fill(0.95) });
   advance(30);
-  const loud = path();
-
+  const loud = wave();
   t.is('the wave is drawn at all', !!quiet && quiet.length > 20, `d=${quiet}`);
-  t.is('ribbons respond to the spectrum', !!loud && quiet !== loud,
+  t.is('the wave responds to the spectrum', quiet !== loud,
        `quiet=${(quiet || '').slice(0, 40)} loud=${(loud || '').slice(0, 40)}`);
+  t.is('the capsule is small while listening', orb.classList.contains('s-listen'), orb.className);
 
-  // Accent tinting, including the two edge cases that were real bugs: a grey
-  // accent must not gain a hue, a saturated one must not go neon.
-  applyAccent('#6B6B6B', 'dark');
-  const grey = document.querySelector('#ribbons path').getAttribute('fill').match(/\d+/g).map(Number);
-  t.is('a grey accent stays grey', Math.max(...grey) - Math.min(...grey) === 0, grey.join(','));
+  said({ phase: 'transcribing', status: 'TRANSCRIBING' });
+  advance(30);
+  t.is('the capsule narrows while working', orb.classList.contains('s-think'), orb.className);
+  // Height of the wave about its centre line (80 in a 160 viewBox). With no
+  // voice to draw the working pulse must still be visible, not a flat line.
+  const swing = () => Math.max(...wave().match(/,(-?[\d.]+|NaN)/g).map(m => Math.abs(parseFloat(m.slice(1)) - 80)));
+  t.is('the wave shows activity while working', swing() > 12, `swing=${swing()}`);
+  t.is('the label shimmers while working', stage.classList.contains('thinking'));
 
-  applyAccent('#0078D4', 'dark');
-  const blue = document.querySelector('#ribbons path').getAttribute('fill').match(/\d+/g).map(Number);
-  t.is('a saturated accent is not neon', Math.max(...blue) <= 245, blue.join(','));
+  said({ phase: 'transcribing', status: 'INSERTED', mode: 'Email', text: 'Hi John, is the report ready?' });
+  t.is('the capsule opens into a panel for the text', orb.classList.contains('s-panel'), orb.className);
+  t.is('the label names the mode', document.getElementById('orb-label').textContent === 'Email',
+       document.getElementById('orb-label').textContent);
+  t.is('the label stops shimmering once inserted', !stage.classList.contains('thinking'));
 
-  applyAccent(s.accent.base, 'light');
-  t.is('overlay follows the theme', document.documentElement.dataset.theme === 'light');
+  // Live typing sends no text at all: the words go into the app instead, so
+  // the overlay must stay a capsule rather than opening a panel to nothing.
+  said({ phase: 'idle', status: '' });
+  said({ phase: 'listening', status: 'LISTENING' });
+  said({ phase: 'transcribing', status: 'INSERTED' });
+  t.is('a dictation with no text never opens the panel', !orb.classList.contains('s-panel'), orb.className);
+  said({ phase: 'idle', status: '' });
+  t.is('the capsule tucks away when idle', orb.classList.contains('s-idle'), orb.className);
+
+  // Full spectrum: violet to red along the wave, in both themes. Every ribbon
+  // uses the one gradient, so the colours cannot wash out where ribbons cross.
+  const hue = rgb => {
+    const [r, g, b] = rgb.match(/[\d.]+/g).slice(0, 3).map(Number).map(v => v / 255);
+    const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+    if (d === 0) return 0;
+    const h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return h * 60;
+  };
+  const ps = [...document.querySelectorAll('#orb-ribbons path')];
+  t.is('seven ribbons', ps.length === 7, `${ps.length}`);
+  t.is('every ribbon is filled with the spectrum gradient',
+       ps.every(p => getComputedStyle(p).fill.includes('url') && getComputedStyle(p).fill.includes('#spectrum')),
+       ps.map(p => getComputedStyle(p).fill).join(' '));
+  t.is('ribbons are not blended into each other',
+       ps.every(p => getComputedStyle(p).mixBlendMode === 'normal'),
+       ps.map(p => getComputedStyle(p).mixBlendMode).join(' '));
+  for (const theme of ['dark', 'light']) {
+    said({ phase: 'listening', status: 'LISTENING', accent: { theme } });
+    const stops = [...document.querySelectorAll('#spectrum stop')].map(n => getComputedStyle(n).stopColor);
+    const hues = stops.map(hue);
+    const near = (lo, hi) => hues.some(h => h >= lo && h <= hi);
+    t.is(`${theme}: seven stops, all different`, stops.length === 7 && new Set(stops).size === 7, stops.join(' '));
+    t.is(`${theme}: the wave covers violet to red`,
+         (near(0, 15) || near(345, 360)) && near(35, 70) && near(100, 170) && near(195, 235) && near(250, 295),
+         hues.map(h => Math.round(h)).join(','));
+    t.is(`${theme}: violet is at the left and red at the right`,
+         hue(stops[0]) > 240 && (hue(stops[6]) < 20 || hue(stops[6]) > 340),
+         `${Math.round(hue(stops[0]))} to ${Math.round(hue(stops[6]))}`);
+    t.is(`${theme}: the theme attribute is set`, document.documentElement.dataset.theme === theme);
+  }
+
+  // Text flips to dark on light glass.
+  said({ phase: 'listening', status: 'LISTENING', accent: { theme: 'dark' } });
+  const darkInk = getComputedStyle(document.getElementById('orb-line')).color;
+  said({ phase: 'listening', status: 'LISTENING', accent: { theme: 'light' } });
+  const lightInk = getComputedStyle(document.getElementById('orb-line')).color;
+  t.is('the text flips to dark on light glass',
+       parseFloat(darkInk.match(/[\d.]+/)[0]) > 200 && parseFloat(lightInk.match(/[\d.]+/)[0]) < 80,
+       `dark=${darkInk} light=${lightInk}`);
+
+  // Translucent, not a slab: the desktop has to show through in both themes.
+  for (const theme of ['dark', 'light']) {
+    said({ phase: 'listening', status: 'LISTENING', accent: { theme } });
+    const a = parseFloat(getComputedStyle(stage).getPropertyValue('--tint-a'));
+    t.is(`${theme}: the glass is translucent`, a > 0 && a < 0.6, `tint alpha ${a}`);
+  }
 };
 
 /* ------------------------------------------------------------- harness */

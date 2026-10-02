@@ -62,6 +62,21 @@ handled by plain rules — no model involved, so that step can never invent a wo
 
 ---
 
+## Typing as you speak
+
+Turn on **Settings → Dictation → Type as you speak** and words appear in the app while you
+talk, instead of all at once when you let go.
+
+Verba types a word once two passes over your audio agree on it, so text rarely changes
+after it lands. When you release the key, a last pass over the whole recording types what
+is missing and fixes what differs. Nothing is typed into a window other than the one you
+started in, so switching apps mid-sentence cannot put your words in the wrong document.
+
+It skips the Ollama rewrite, which needs the whole sentence, and it re-reads the recording
+on every pass, so past about a minute it pauses until you let go.
+
+---
+
 ## Speech models
 
 Pick one during setup; swap any time in **Settings → Models**. Downloads go to
@@ -185,7 +200,29 @@ cd src-tauri && cargo test
 
 Covers the ring buffer's absolute indexing, resampling, keyboard event construction, formatting
 rules, the correction diff, pack integrity, hardware scoring, SHA-256 against the FIPS vectors,
-and the guard that stops a dictation typing into Verba's own window.
+the guard that stops a dictation typing into Verba's own window, the hotkey watchdog's
+decisions, the microphone stall rule, and live typing's word agreement and edit arithmetic.
+
+**Window checks**
+
+```bash
+powershell -NoProfile -File tools/uicheck.ps1
+```
+
+Renders the settings, setup and overlay windows in headless Edge against a real `--state`
+payload from the built exe.
+
+**End-to-end test**
+
+```bash
+powershell -NoProfile -File tools/e2e.ps1
+```
+
+Starts the built `dist/Verba.exe` with a spoken recording in place of the microphone
+(`VERBA_FAKE_MIC`), holds the hotkey and watches a real text box. It checks when the first
+word appears, that text keeps arriving while the key is held, that the model comes back
+after an idle unload, and that a dead microphone stream gets reopened. It stops any running
+Verba and restores your config afterwards, so run it on a desktop nobody is typing on.
 
 </details>
 
@@ -209,7 +246,8 @@ couldn't be diagnosed by reading the code.
 | `--accent` | The Windows accent colour and theme as Verba resolves them |
 | `--capture-test` | Whether the desktop capture behind the overlay works |
 | `--inject-test <text>` | Text insertion with no model and no microphone |
-| `--overlay-test [visual]` | Drive the overlay through its states |
+| `--overlay-test` | Drive the overlay through its states |
+| `--press [ms]` | Hold the hotkey from outside the keyboard, to script a dictation |
 | `--onboard` | Replay the first-run flow |
 | `--check-update` / `--self-update` | Check for, or run, an update now |
 
@@ -221,7 +259,8 @@ couldn't be diagnosed by reading the code.
 
 Verba is early. It works and is used daily, but the version number is honest.
 
-- Parakeet runs offline rather than truly streaming.
+- Parakeet and faster-whisper don't stream. Live typing gets its interim text by re-reading
+  the recording every few hundred milliseconds.
 - No dictation history yet.
 - Per-mode override hotkeys aren't implemented.
 - Windows 10 is untested; Linux and Android are not supported — the platform layer is Win32 throughout.
@@ -230,7 +269,7 @@ Verba is early. It works and is used daily, but the version number is honest.
   Verba's is a large mostly transparent canvas, so the effect frames the visible panel.
   Nothing inside Verba's own process stops it — a DWM backdrop attribute, an
   `ACCENT_DISABLED` composition attribute and a window region were all measured against
-  the mod and none worked. **Settings → Appearance → Shrink the overlay window** cuts the
+  the mod and none worked. **Settings → General → Shrink the overlay window** cuts the
   band from about ninety pixels a side to under ten; adding `Verba.exe` to the tool's own
   excluded-programs list removes it entirely.
 - The binary is unsigned.

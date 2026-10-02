@@ -57,9 +57,9 @@ pub fn engines() -> Vec<EngineInfo> {
         ("whisper.cpp", "whisper.cpp",
          "Compiled in. Reaches any GPU through Vulkan and needs no Python."),
         ("faster-whisper", "faster-whisper",
-         "CTranslate2, run as a Python sidecar Verba installs for you. GPU path is CUDA-only — on AMD or Intel graphics it runs on CPU."),
+         "CTranslate2, run as a Python sidecar Verba installs for you. The GPU path is CUDA-only, so AMD and Intel graphics run on the CPU."),
         ("parakeet", "Parakeet / sherpa-onnx",
-         "NVIDIA Parakeet and Moonshine, run through prebuilt sherpa-onnx wheels Verba installs for you. Far faster than Whisper; offline rather than streaming."),
+         "NVIDIA Parakeet and Moonshine, run through prebuilt sherpa-onnx wheels Verba installs for you. Far faster than Whisper. It transcribes after you stop rather than as you speak."),
     ]
     .into_iter()
     .map(|(id, name, note)| EngineInfo {
@@ -259,8 +259,10 @@ pub struct Config {
     pub preload_model: bool,
     /// Unload the model after this many seconds idle. 0 keeps it resident.
     pub model_idle_eject_secs: u64,
-    /// Overlay treatment: "ribbons" or "glow".
-    pub visual: String,
+    /// Type the words into the focused app while the user is still speaking,
+    /// instead of inserting the whole result after the key comes up. Skips the
+    /// Ollama rewrite, which needs the complete text.
+    pub live_typing: bool,
     /// Experimental: ask Windows to strip any translucency a third-party tool
     /// has applied to the overlay window. Off by default — it is a workaround
     /// for someone else's software, it uses an undocumented API, and the
@@ -310,7 +312,7 @@ impl Default for Config {
             // pay the reload, short enough that an idle machine gets its
             // memory back.
             model_idle_eject_secs: 600,
-            visual: "ribbons".into(),
+            live_typing: false,
             tight_overlay_window: false,
             threads: None,
             use_gpu: true,
@@ -610,7 +612,7 @@ const CATALOGUE: &[Entry] = &[
     // builds, but those use a different recogniser that is not wired up.
     ("sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8",
      "Parakeet TDT 110M", "parakeet", 103, 700, false, "CC-BY-4.0",
-     "Roughly 90x realtime on CPU alone — far faster than any Whisper build. English.", 76, 99),
+     "About 90x realtime on CPU alone, far faster than any Whisper build. English.", 76, 99),
     ("sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
      "Parakeet TDT 0.6B v2", "parakeet", 460, 1800, false, "CC-BY-4.0",
      "Tops several English accuracy leaderboards and still runs many times faster than realtime.", 95, 90),

@@ -1,62 +1,25 @@
-/* Verba overlay.
+/* Verba overlay: a translucent glass capsule that follows the Windows theme.
  *
- * Two treatments share this file:
- *   #stage-ribbons — the liquid-glass interference wave from the design.
- *   #stage-glow    — dark translucent box inside a moving blue aura.
- *
- * Material rules carried across both: no borders, only inset specular edges and
- * ambient cast shadow; radii concentric (inner r = outer r - padding).
- */
-
-:root {
-  /* Overwritten from the Windows accent once the engine sends it. */
-  --accent: #4A90D9;
-  --accent-rgb: 74, 144, 217;
-  --pink:   oklch(80% .14 350);
-  --violet: oklch(72% .13 300);
-  --indigo: oklch(62% .13 275);
-  --orange: oklch(82% .13 60);
-
-  --sans: Manrope, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
-
-  /* Surface tint and cast shadow, as in settings.css. */
-  --tint-rgb: 255, 255, 255;
-  --shade-rgb: 0, 0, 0;
-  /* The glass panel's own ground. */
-  --glass: 10, 10, 14;
-  --glass-alpha: .72;
-}
-
-/* Light mode.
- *
- * The panel stays dark in both themes on purpose: it floats over whatever the
- * user is working in — often a dark editor — and a light slab there is a
- * flashbang. What changes is how far it leans that way, so it still reads as
- * belonging to a light desktop rather than being a hole in it. */
-:root[data-theme="light"] {
-  --glass: 28, 28, 34;
-  --glass-alpha: .60;
-  --shade-rgb: 90, 90, 100;
-}
+ * No borders. A specular lip on top, a fainter one below and a hairline all
+ * round give the edge; the cast shadow gives the depth. */
 
 * { box-sizing: border-box; }
 
 html, body {
   margin: 0;
   height: 100%;
-  /* Must stay fully transparent — this is a click-through window floating over
+  /* Must stay fully transparent: this is a click-through window floating over
      the desktop, not a page. */
   background: transparent;
   overflow: hidden;
-  font-family: var(--sans);
+  font-family: Manrope, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   cursor: default;
 }
 
-.stage {
+#stage-orb {
   position: absolute;
   left: 50%;
   top: 0;
@@ -64,312 +27,228 @@ html, body {
   display: flex;
   justify-content: center;
   pointer-events: none;
+
+  --spring: linear(0, 0.051, 0.171, 0.322, 0.478, 0.621, 0.744, 0.842, 0.917,
+    0.97, 1.005, 1.025, 1.036, 1.038, 1.037, 1.032, 1.026, 1.02, 1.015, 1.01,
+    1.006, 1.003, 1.001, 1);
+  --orb-top: 12px;
+
+  /* Dark theme. The tint is light on purpose: this is glass, and the desktop
+     behind it should still show. */
+  --tint: 8, 8, 12;
+  --tint-a: .4;
+  --ink: 255, 255, 255;
+  --lip: rgba(255, 255, 255, .36);
+  --lip-low: rgba(255, 255, 255, .07);
+  --hair: rgba(255, 255, 255, .16);
+  --shadow: rgba(0, 0, 0, .7);
+  --lens: blur(9px) saturate(150%) brightness(.55);
+  --bloom-a: 1;
+  /* Violet to red, left to right. Bright, to stand out on dark glass. */
+  --c1: #9b6bff; --c2: #5b6cff; --c3: #33a2ff; --c4: #34e58f;
+  --c5: #ffe94a; --c6: #ffa23a; --c7: #ff5252;
 }
-.stage[hidden] { display: none; }
 
-/* ---------------------------------------------------------------- ribbons */
+/* Light theme: pale glass, dark text, and deeper colours that hold their own
+   on a light ground. */
+:root[data-theme="light"] #stage-orb {
+  --tint: 250, 250, 253;
+  --tint-a: .48;
+  --ink: 22, 22, 30;
+  --lip: rgba(255, 255, 255, .9);
+  --lip-low: rgba(0, 0, 0, .06);
+  --hair: rgba(0, 0, 0, .13);
+  --shadow: rgba(40, 44, 70, .38);
+  --lens: blur(9px) saturate(140%) brightness(1.2);
+  --bloom-a: .55;
+  --c1: #7f46f0; --c2: #3b4be0; --c3: #1f8ceb; --c4: #14b866;
+  --c5: #edbb00; --c6: #f2780c; --c7: #e8362f;
+}
 
-#glass {
+#orb {
   position: relative;
-  width: 180px;
-  border-radius: 34px;
+  display: grid;
+  grid-template-rows: auto 0fr;
+  /* minmax, or the column takes the wave's min-content width, which an SVG
+     derives from its viewBox: wider than the capsule, so the wave ran off the
+     right edge. */
+  grid-template-columns: minmax(0, 1fr);
+  width: 148px;
+  margin-top: var(--orb-top);
+  border-radius: 26px;
   overflow: hidden;
-  opacity: 0;
-  margin-top: 0;
+  isolation: isolate;
+  box-shadow: 0 18px 44px -14px var(--shadow);
   transition:
-    width .78s cubic-bezier(.2, 1.04, .28, 1),
-    opacity .42s ease,
-    background .8s ease,
-    box-shadow .8s ease,
-    backdrop-filter .8s ease,
-    margin-top .6s ease;
+    width .62s var(--spring),
+    grid-template-rows .62s var(--spring),
+    border-radius .62s var(--spring),
+    transform .62s var(--spring),
+    opacity .3s ease;
 }
 
-/* Captured desktop. It is grabbed at 1/8 scale, so it is stretched back up
-   here — the interpolation plus the CSS blur is what turns it into frosted
-   glass. Darkened and desaturated so it never competes with the transcript. */
-#behind {
+/* The tint and the rim sit on a pseudo-element rather than #orb, because an
+   element's own background and inset shadows paint beneath its negative
+   z-index children, and the captured desktop is one: it covered both. */
+#orb::after {
+  content: "";
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  z-index: -1;
   border-radius: inherit;
-  object-fit: cover;
-  filter: blur(14px) saturate(70%) brightness(.42);
-  transform: scale(1.08);   /* hide the soft edges the blur pulls inward */
-  opacity: 0;
-  transition: opacity .7s ease;
+  background: rgba(var(--tint), var(--tint-a));
+  box-shadow:
+    inset 0 1px 0 var(--lip),
+    inset 0 -1px 0 var(--lip-low),
+    inset 0 0 0 .5px var(--hair);
   pointer-events: none;
 }
 
-/* Tint over the capture. Desaturated and near-monochrome: the ribbons are the
-   only colour in this treatment. */
-#field {
+/* Idle: tucked above the top edge and small, so showing it reads as the
+   capsule dropping out of the edge rather than fading in on the spot. */
+#orb.s-idle   { width: 60px; transform: translateY(-64px) scale(.5); opacity: 0; }
+#orb.s-listen { width: 148px; }
+#orb.s-think  { width: 196px; border-radius: 22px; }
+#orb.s-panel  { width: 560px; grid-template-rows: auto 1fr; border-radius: 28px; }
+
+/* The captured desktop is pulled back by the capsule's offset so what shows
+   through is what is actually under it. The magnification is the lens. */
+#orb-behind {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background:
-    radial-gradient(120% 140% at 50% -20%, rgba(120, 135, 190, .16), transparent 70%),
-    radial-gradient(80% 120% at 12% 120%, rgba(100, 110, 170, .12), transparent 72%);
-  opacity: 0;
-  transition: opacity .7s ease;
+  z-index: -2;
+  left: 50%;
+  top: calc(-1 * var(--orb-top));
+  width: 100vw;
+  height: 100vh;
+  margin-left: -50vw;
+  transform: scale(1.14);
+  transform-origin: 50% 40px;
+  filter: var(--lens);
   pointer-events: none;
 }
 
-#wave {
-  position: relative;
-  height: 104px;
-  transform-origin: 50% 50%;
-  transform: scaleX(.06);
-  opacity: 0;
-  transition:
-    transform .82s cubic-bezier(.18, 1.1, .26, 1),
-    opacity .5s ease,
-    height .7s ease;
-}
-
-#wave svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-
-/* Screen blending is what makes the ribbons whiten where they cross — that
-   whitening is the lens shape, not a separate element. */
-#ribbons path { mix-blend-mode: screen; }
-
-#blend {
-  position: absolute;
-  left: 0; right: 0; bottom: -2px;
-  height: 46px;
-  background: linear-gradient(rgba(var(--glass), 0), rgba(var(--glass), .55));
-  opacity: 0;
-  transition: opacity .7s ease;
-  pointer-events: none;
-}
-
-#body {
-  position: relative;
-  height: 0;
-  overflow: hidden;
-  transition: height .78s cubic-bezier(.22, 1, .36, 1);
-}
-
-#inner { padding: 2px 20px 18px; }
-
-#meta, #glow-meta {
+#orb-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  font: 500 9.5px var(--mono);
-  letter-spacing: .06em;
+  height: 52px;
+  padding: 0 16px;
+  transition: height .62s var(--spring), padding .62s var(--spring);
 }
-#meta { padding: 0 4px 12px; }
+#stage-orb.s-think #orb-head { height: 44px; padding: 0 14px; }
+#stage-orb.s-panel #orb-head { padding: 0 20px; }
 
-#status, #g-status { color: var(--pink); }
-#timer, #g-timer   { font: 600 11.5px var(--sans); color: rgba(var(--tint-rgb), .7); }
-#engine, #g-engine { margin-left: auto; color: rgba(var(--tint-rgb), .3); }
+#orb-wave {
+  flex: 1 0 0;
+  min-width: 0;
+  height: 30px;
+  overflow: visible;
+  transition: flex-basis .62s var(--spring), height .62s var(--spring),
+    margin .62s var(--spring), opacity .3s ease;
+}
+#stage-orb.s-think #orb-wave, #stage-orb.s-panel #orb-wave { flex: 0 0 64px; height: 24px; }
+/* Once the text has landed there is nothing for the wave to show, so it
+   folds away and the mode name slides into its place. */
+#stage-orb.s-panel:not(.live):not(.thinking) #orb-wave {
+  flex-basis: 0;
+  margin-right: -10px;
+  opacity: 0;
+}
 
-/* Minimalist: no well, no inset rule, no second surface. The text sits
-   directly on the frosted panel and the wave stays the only ornament. */
-#line {
-  position: relative;
-  padding: 4px 4px 2px;
-  font: 400 18px/1.72 var(--sans);
-  color: rgba(var(--tint-rgb), .96);
+/* The widest ribbon sits at the back and is the most solid; the rest layer
+   over it, so the overlap reads as depth instead of mud. */
+#orb-ribbons path { fill: url(#spectrum); }
+#orb-ribbons path:nth-child(1) { opacity: .9; }
+#orb-ribbons path:nth-child(2) { opacity: .6; }
+#orb-ribbons path:nth-child(3) { opacity: .55; }
+#orb-ribbons path:nth-child(4) { opacity: .5; }
+#orb-ribbons path:nth-child(5) { opacity: .45; }
+#orb-ribbons path:nth-child(6) { opacity: .4; }
+#orb-ribbons path:nth-child(7) { opacity: .5; }
+#spectrum stop:nth-child(1) { stop-color: var(--c1); }
+#spectrum stop:nth-child(2) { stop-color: var(--c2); }
+#spectrum stop:nth-child(3) { stop-color: var(--c3); }
+#spectrum stop:nth-child(4) { stop-color: var(--c4); }
+#spectrum stop:nth-child(5) { stop-color: var(--c5); }
+#spectrum stop:nth-child(6) { stop-color: var(--c6); }
+#spectrum stop:nth-child(7) { stop-color: var(--c7); }
+
+#orb-label, #orb-time {
+  white-space: nowrap;
+  font: 500 13px Manrope, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  letter-spacing: -.005em;
+}
+#orb-label { flex: 1; color: rgba(var(--ink), .66); }
+#orb-time { color: rgba(var(--ink), .42); font-size: 12px; }
+/* The wave fills the capsule while listening; the words would only crowd it. */
+#stage-orb.s-listen #orb-label, #stage-orb.s-idle #orb-label { display: none; }
+#stage-orb:not(.live) #orb-time { display: none; }
+
+/* Working: a band of the spectrum sweeps through the label. */
+#stage-orb.thinking #orb-label {
+  color: transparent;
+  background: linear-gradient(100deg,
+    rgba(var(--ink), .5) 14%, rgb(var(--ink)) 24%, var(--c7) 33%, var(--c6) 40%,
+    var(--c5) 47%, var(--c4) 54%, var(--c3) 61%, var(--c1) 68%, rgba(var(--ink), .5) 80%);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+          background-clip: text;
+  animation: shimmer 1.7s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to   { background-position: 0 0; }
+}
+
+#orb-text { min-height: 0; overflow: hidden; }
+#orb-line {
+  max-height: 166px;
+  overflow: hidden;
+  padding: 0 22px 18px;
+  font: 400 17px/1.6 Manrope, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  color: rgba(var(--ink), .95);
   letter-spacing: -.006em;
   text-wrap: pretty;
-  min-height: 32px;
 }
-
-#line span, #g-line span { opacity: 0; transition: opacity .45s ease; }
+/* Only once the text outgrows the box, which is scrolled to its end, so the
+   first line is not faded for no reason. */
+#orb-line.clip {
+  -webkit-mask: linear-gradient(transparent, #000 26px);
+          mask: linear-gradient(transparent, #000 26px);
+}
+#orb-line span { opacity: 0; transition: opacity .45s ease; }
 
 .caret {
   display: inline-block;
-  width: 2px; height: 18px;
+  width: 2px;
+  height: 18px;
   margin-left: 2px;
   vertical-align: -3px;
   border-radius: 1px;
-  background: oklch(84% .14 350);
-  box-shadow: 0 0 10px 2px oklch(80% .14 350 / .7);
+  background: linear-gradient(var(--c7), var(--c5), var(--c3), var(--c1));
   animation: caret 1s steps(1, end) infinite;
 }
-
 @keyframes caret {
   0%, 45%   { opacity: 1; }
   55%, 100% { opacity: .15; }
 }
 
-/* ---------------------------------------------------------------- minimal */
-
-/* Flat, not glass. The whole point of this treatment is that it has no
-   material: one card, one weight of line, one accent. */
-#min-card {
-  position: relative;
-  margin-top: 40px;
-  width: 300px;
+/* The glow the capsule casts, the whole spectrum side by side. Outside the
+   capsule, which clips; wave code drives its opacity and size from the voice. */
+#orb-bloom {
+  position: absolute;
+  top: calc(var(--orb-top) - 6px);
+  left: 50%;
+  width: 190px;
+  height: 64px;
+  margin-left: -95px;
+  border-radius: 50%;
+  background: linear-gradient(90deg,
+    var(--c7), var(--c6), var(--c5), var(--c4), var(--c3), var(--c2), var(--c1));
+  filter: blur(22px);
   opacity: 0;
-  border-radius: 22px;
-  padding: 18px 22px 20px;
-  background: rgba(var(--glass), .94);
-  box-shadow: 0 24px 60px -22px rgba(var(--shade-rgb), .9),
-              inset 0 0 0 1px rgba(var(--tint-rgb), .05);
-  transition: width .7s cubic-bezier(.2, 1.04, .28, 1), opacity .4s ease;
-}
-
-#min-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  font: 400 10.5px var(--mono);
-  letter-spacing: .14em;
-  color: rgba(var(--tint-rgb), .42);
-  margin-bottom: 16px;
-}
-
-#min-wave {
-  position: relative;
-  height: 84px;
-  /* The slot count is fixed, so the bar row is wider than the card while it is
-     collapsed. Clipping turns that into a wipe rather than an overflow. */
-  overflow: hidden;
-}
-
-/* Bars are mirrored about the centre line, which is what makes this read as a
-   recording rather than a bar chart. */
-#min-bars {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-#min-bars i {
-  flex: none;
-  width: 2px;
-  height: 100%;
-  border-radius: 1px;
-  background: #fff;
-  transform: scaleY(0);
-  transform-origin: center;
-}
-
-/* The run not yet recorded. A repeating gradient rather than elements: it is
-   decoration, and sixty more nodes to animate would not be. */
-#min-dots {
-  position: absolute;
-  top: 50%;
-  height: 2px;
-  transform: translateY(-50%);
-  background-image: linear-gradient(90deg, rgba(var(--tint-rgb), .3) 0 2px, transparent 2px 100%);
-  background-size: 9px 2px;
   pointer-events: none;
+  transition: width .62s var(--spring), margin-left .62s var(--spring);
 }
-
-#min-cursor {
-  position: absolute;
-  top: 0;
-  width: 2px;
-  height: 100%;
-  border-radius: 1px;
-  background: var(--accent);
-  pointer-events: none;
-}
-
-#min-line {
-  font: 400 13.5px/1.6 var(--sans);
-  color: rgba(var(--tint-rgb), .9);
-  letter-spacing: -.003em;
-  text-wrap: pretty;
-  height: 0;
-  margin-top: 0;
-  overflow: hidden;
-  transition: height .6s cubic-bezier(.22, 1, .36, 1),
-              margin-top .6s cubic-bezier(.22, 1, .36, 1);
-}
-#min-line.open { height: 76px; margin-top: 18px; }
-#min-line .caret {
-  background: var(--accent);
-  box-shadow: none;
-  height: 14px;
-}
-
-/* ------------------------------------------------------------------- glow */
-
-#glow-shell {
-  position: relative;
-  /* Clear of the window's top edge by more than the widest halo's inset,
-     otherwise the outer bloom is cut off in a hard straight line. */
-  margin-top: 46px;
-  width: 300px;
-  opacity: 0;
-  transition:
-    width .8s cubic-bezier(.2, 1.04, .28, 1),
-    opacity .45s ease;
-}
-
-/* Registered so the conic sweep angle can be driven per frame. A plain custom
-   property would be an unanimatable string; @property makes it a real angle. */
-@property --a {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-
-#aura {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  transition: opacity .6s ease;
-  pointer-events: none;
-}
-
-/* Filled rounded rectangles, larger than the box and heavily blurred. The box
-   sits on top and covers the middle, so what escapes around the edges is the
-   glow — and because each layer is solid rather than a masked band, their
-   falloffs merge into one halo instead of reading as concentric outlines.
-   Being unmasked, they also give the box's backdrop-filter real colour to
-   smear, which is what frosts the interior. */
-.halo {
-  position: absolute;
-  will-change: opacity, filter, transform;
-}
-/* Insets and radii only. The conic gradient is rebuilt per frame from the band
-   energies so brightness varies around the perimeter with what is actually
-   being said, and `filter` is set alongside it to chain noise displacement
-   ahead of the blur — displace the sharp shape first, then soften, or the
-   wobble smears into nothing. */
-.h1 { inset: -12px; border-radius: 38px; }
-.h2 { inset: -30px; border-radius: 56px; }
-.h3 { inset: -54px; border-radius: 80px; }
-
-#glow-box {
-  position: relative;
-  border-radius: 26px;
-  padding: 13px 17px;
-  overflow: hidden;
-  /* Thin enough that the core behind it reads through as colour, which is what
-     makes this frosted rather than merely dark. Brightness below 1 keeps the
-     blue from washing the text out. */
-  background: rgba(var(--glass), calc(var(--glass-alpha) * .64));
-  backdrop-filter: blur(30px) saturate(180%) brightness(.62);
-  -webkit-backdrop-filter: blur(30px) saturate(180%) brightness(.62);
-  box-shadow:
-    inset 0 1px 0 rgba(var(--tint-rgb), .16),
-    inset 0 0 0 1px rgba(var(--accent-rgb), .16),
-    0 30px 80px -30px rgba(var(--shade-rgb), .95);
-}
-
-#glow-meta { padding: 0 1px; }
-#g-status { color: #7FD0FF; }
-
-#g-line {
-  border-radius: 16px;
-  font: 400 15.5px/1.68 var(--sans);
-  color: rgba(var(--tint-rgb), .96);
-  letter-spacing: -.004em;
-  text-wrap: pretty;
-  height: 0;
-  margin-top: 0;
-  overflow: hidden;
-  transition: height .7s cubic-bezier(.22, 1, .36, 1),
-              margin-top .7s cubic-bezier(.22, 1, .36, 1);
-}
-#g-line.open { height: 88px; margin-top: 11px; }
-#g-line .caret { background: var(--accent); box-shadow: 0 0 10px 2px rgba(var(--accent-rgb), .7); }
+#stage-orb.s-think #orb-bloom { width: 230px; margin-left: -115px; }
+#stage-orb.s-panel #orb-bloom { width: 520px; margin-left: -260px; }

@@ -30,18 +30,30 @@ pub fn init() {
     if let Some(dir) = p.parent() {
         let _ = create_dir_all(dir);
     }
-    // Truncated per run: this is a debugging aid, not an audit trail, and an
-    // ever-growing file is its own problem.
-    if let Ok(f) = OpenOptions::new().create(true).write(true).truncate(true).open(&p) {
+    // Appended to, not truncated. Every diagnostic subcommand (--press, --state,
+    // --format) runs this too, and truncating wiped the log of the instance
+    // already running, leaving zero padding where its history had been. The
+    // file restarts once it passes a megabyte so it cannot grow without end.
+    if std::fs::metadata(&p).is_ok_and(|m| m.len() > 1_000_000) {
+        let _ = std::fs::remove_file(&p);
+    }
+    if let Ok(f) = OpenOptions::new().create(true).append(true).open(&p) {
         *FILE.lock().unwrap() = Some(f);
     }
+}
+
+/// Local wall-clock time. The file used to have none, so a report of "it
+/// stopped working after a while" could not be lined up with anything.
+fn stamp() -> String {
+    let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    format!("{:02}:{:02}:{:02}", t.wHour, t.wMinute, t.wSecond)
 }
 
 pub fn write(line: &str) {
     println!("{line}");
     if let Ok(mut guard) = FILE.lock() {
         if let Some(f) = guard.as_mut() {
-            let _ = writeln!(f, "{line}");
+            let _ = writeln!(f, "{} {line}", stamp());
             let _ = f.flush();
         }
     }

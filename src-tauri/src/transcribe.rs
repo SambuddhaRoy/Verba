@@ -83,6 +83,10 @@ pub struct Worker {
 /// steadily growing buffer is O(n) per pass, so a long dictation would slow
 /// down as it went; the final pass still sees everything.
 const PARTIAL_TAIL_SECS: usize = 20;
+/// Live typing lines each pass up with the words already typed, which only
+/// works if the pass starts at the beginning of the utterance. Past this the
+/// tail window slides, typing pauses, and the final pass types the rest.
+const LIVE_TAIL_SECS: usize = 60;
 
 pub fn spawn() -> Result<Worker> {
     let (job_tx, job_rx) = channel::<Job>();
@@ -149,10 +153,12 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>) {
         let want = (cfg.engine.clone(), cfg.model.clone());
         if engine.is_none() || loaded != want {
             crate::log!("  loading {} via {}", cfg.model, cfg.engine);
+            let began = Instant::now();
             match Backend::load(&cfg) {
                 Ok(b) => {
                     engine = Some(b);
                     loaded = want;
+                    crate::log!("  loaded in {}ms", began.elapsed().as_millis());
                 }
                 Err(e) => {
                     let _ = done.send(Done::Failed { error: e.to_string(), utterance });
@@ -165,7 +171,8 @@ fn run(jobs: Receiver<Job>, done: Sender<Done>) {
         let slice: &[f32] = if final_pass {
             &pcm
         } else {
-            let cap = PARTIAL_TAIL_SECS * audio_rate();
+            let secs = if cfg.live_typing { LIVE_TAIL_SECS } else { PARTIAL_TAIL_SECS };
+            let cap = secs * audio_rate();
             &pcm[pcm.len().saturating_sub(cap)..]
         };
 

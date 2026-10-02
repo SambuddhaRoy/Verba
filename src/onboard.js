@@ -95,7 +95,7 @@ if (listen) {
     const st = $('try-state'), heard = $('try-heard');
 
     if (payload.phase === 'listening') {
-      st.textContent = 'Listening — keep holding, then let go.';
+      st.textContent = 'Listening. Keep holding, then let go.';
       st.className = 'tstate live';
       return;
     }
@@ -119,7 +119,7 @@ if (listen) {
 async function boot() {
   if (!invoke) {
     document.body.insertAdjacentHTML('afterbegin',
-      '<p style="padding:20px;color:#f88">Tauri API unavailable — onboarding cannot load.</p>');
+      '<p style="padding:20px;color:#f88">The Tauri API is unavailable, so setup cannot load.</p>');
     return;
   }
   await reload();

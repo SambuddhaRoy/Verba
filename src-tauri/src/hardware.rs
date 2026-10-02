@@ -174,7 +174,7 @@ pub fn recommend(hw: &Hardware) -> Recommendation {
 
     let why = if offloads(hw, m.needs_mb) {
         format!(
-            "{} has {} GB of VRAM, so {} runs on the GPU — the best accuracy here without a wait",
+            "{} has {} GB of VRAM, so {} runs on the GPU, the most accurate model here that doesn't make you wait",
             hw.gpu,
             hw.vram_mb / 1024,
             m.name
@@ -186,7 +186,7 @@ pub fn recommend(hw: &Hardware) -> Recommendation {
         )
     } else {
         format!(
-            "{} GB of RAM and no GPU offload — {} is the accuracy sweet spot that stays responsive",
+            "{} GB of RAM and no GPU offload, so {} is the most accurate model that stays responsive",
             hw.ram_mb.max(1) / 1024,
             m.name
         )
