@@ -154,6 +154,9 @@ function setText(text, partial) {
 
 let last = performance.now();
 
+/** One animation step. It does not schedule the next, so a test can call it
+ *  directly: when it did, every call started another loop, and a check that
+ *  stepped a few hundred times left a few hundred loops redrawing in parallel. */
 function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -193,10 +196,13 @@ function tick(now) {
   el.orb.style.scale = (1 + 0.045 * e).toFixed(4);
   el.bloom.style.opacity = `calc(var(--bloom-a) * ${(level * (0.1 + 0.45 * e)).toFixed(3)})`;
   el.bloom.style.scale = `${(0.9 + 0.3 * e).toFixed(4)} ${(0.85 + 0.5 * e).toFixed(4)}`;
-
-  requestAnimationFrame(tick);
 }
-requestAnimationFrame(tick);
+
+function frame(now) {
+  tick(now);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
 
 // --- driven by the Rust engine ---------------------------------------------
 

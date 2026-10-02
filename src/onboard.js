@@ -325,7 +325,7 @@ function buildLlm() {
   wrap.dataset.name = rec.name;
   $('lm-name').textContent = rec.name;
   $('lm-note').textContent = rec.local_only
-    ? 'Already on this machine.' : `${rec.size_gb.toFixed(1)} GB · ${rec.note}`;
+    ? 'Already on this PC.' : `${rec.size_gb.toFixed(1)} GB · ${rec.note}`;
 
   const card = wrap.querySelector('.rec');
   const chosen = cfg.llm_model === rec.name;

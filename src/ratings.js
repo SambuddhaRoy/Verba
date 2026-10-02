@@ -38,8 +38,8 @@ function ratingBars(m) {
   const rows = [
     ['Accuracy', m.accuracy, 'acc', ''],
     ['Speed', here, 'spd',
-      m.fits === false ? 'needs more memory than this machine has'
-        : throttled ? `on this machine — ${m.speed} with GPU offload`
+      m.fits === false ? 'needs more memory than this PC has'
+        : throttled ? `on this PC, ${m.speed} with GPU offload`
         : ''],
   ];
 
