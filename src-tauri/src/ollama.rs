@@ -117,6 +117,11 @@ pub fn ensure_running(cfg: &Config) -> Result<()> {
     bail!("Ollama was started but did not answer within 20s")
 }
 
+/// How long Ollama holds the weights after a request. Every request must send
+/// it: a request without one resets the expiry to Ollama's five-minute
+/// default, so one dictation used to cut the preload's hold short.
+pub const KEEP_ALIVE: &str = "30m";
+
 /// Force the configured model resident, so the first dictation does not pay
 /// its load.
 ///
@@ -132,13 +137,11 @@ pub fn preload(cfg: &Config) -> Result<()> {
         .timeout_global(Some(Duration::from_secs(300)))
         .build()
         // An empty prompt loads the weights without generating anything.
-        // keep_alive holds them past Ollama's five-minute default, so a quiet
-        // spell between dictations does not undo this.
         .send_json(serde_json::json!({
             "model": cfg.llm_model,
             "prompt": "",
             "stream": false,
-            "keep_alive": "30m",
+            "keep_alive": KEEP_ALIVE,
         }))
         .map_err(|e| anyhow!("preload failed: {e}"))?;
     Ok(())

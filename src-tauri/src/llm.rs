@@ -76,6 +76,7 @@ pub fn rewrite(cfg: &Config, instructions: &str, text: &str) -> Result<String> {
         ),
         "prompt": text,
         "stream": false,
+        "keep_alive": crate::ollama::KEEP_ALIVE,
         "options": {
             // Low temperature: this is a reformatting task, and sampling
             // variety here shows up as invented wording.
